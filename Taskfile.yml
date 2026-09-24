@@ -1,0 +1,60 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  fmt:
+    desc: Format Go source files
+    cmds:
+      - go fmt ./...
+      - go fix ./...
+
+  vet:
+    desc: Run Go vet
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./...
+
+  check:
+    desc: Run fmt, vet, test
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: test
+
+  deps:tidy:
+    desc: Tidy Go modules
+    cmds:
+      - go mod tidy
+
+  install:
+    desc: Install gobank-deploy into GOPATH/bin
+    cmds:
+      - go install -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/gobank-deploy
+
+  up:
+    desc: "Deploy to an environment (task up ENV=preprod CREATE=1 SCALE=small); run via tp secrets"
+    cmds:
+      - go run ./cmd/gobank-deploy -src {{.SRC | default "../gobank"}} up {{.ENV | default "preprod"}} {{if .CREATE}}-create{{end}} -scale {{.SCALE | default "small"}}
+
+  down:
+    desc: Delete an environment's server — this is what stops billing (task down ENV=preprod); run via tp secrets
+    cmds:
+      - go run ./cmd/gobank-deploy down {{.ENV | default "preprod"}} {{.CLI_ARGS}}
+
+  status:
+    desc: Show an environment's server state and URL (task status ENV=preprod); run via tp secrets
+    cmds:
+      - go run ./cmd/gobank-deploy status {{.ENV | default "preprod"}}
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf build

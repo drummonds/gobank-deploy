@@ -1,0 +1,6 @@
+remotes:
+  - name: origin
+    forge: forgejo
+    token_env: BYTESTONE_FORGEJO_TOKEN
+  - github
+install: true

@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `up` writes `/etc/gobank/deploy.env` with `GOBANK_MEMORY_LIMIT` sized to
+  half the box's RAM (the rest is PostgreSQL's), and makes the unit read it;
+  works on boxes created before the unit had the `EnvironmentFile` line.
 - `ui`: lofigui page listing each environment's state with Create (scale
   preset, marked as starting billing), Redeploy, Down (confirmation tick
   required) and Cancel; one job per environment, log on the page, polling

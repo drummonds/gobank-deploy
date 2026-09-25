@@ -20,6 +20,8 @@ write_files:
       User=gobank
       Environment=GOBANK_PG_DSN=postgres://gobank:__PGPASS__@127.0.0.1:5432/gobank?sslmode=disable
       Environment=GOBANK_ADDR=:1347
+      # Per-deploy sizing (GOBANK_MEMORY_LIMIT), written by gobank-deploy.
+      EnvironmentFile=-/etc/gobank/deploy.env
       ExecStart=/opt/gobank/demo
       Restart=on-failure
       RestartSec=2

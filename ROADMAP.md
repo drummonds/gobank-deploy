@@ -28,7 +28,9 @@ inside the box first; expand/contract migrations through gobank-db.
 
 ## Later
 
-- Separate database instance with logical replication for Postgres
-  version upgrades and zone moves (researched in gobank-db)
+- Separate database box: the app's memory share rises from 50% of the
+  box (see `appShareWithLocalPostgres`) once PostgreSQL is elsewhere;
+  logical replication for Postgres version upgrades and zone moves
+  (researched in gobank-db)
 - Masking step in the snapshot once real PII exists
 - Kubernetes targets (gobank Phase 3) behind the same vocabulary

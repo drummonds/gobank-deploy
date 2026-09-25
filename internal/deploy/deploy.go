@@ -33,6 +33,7 @@ type Server struct {
 	Type     string
 	Status   string
 	Location string
+	MemoryGB float64 // RAM of the server type; 0 when unknown
 }
 
 // Release is a built binary and the version baked into it.
@@ -237,7 +238,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if err := host.Put(ctx, rel.Binary, binaryPath+".new"); err != nil {
 		return nil, fmt.Errorf("copy binary: %w", err)
 	}
-	if err := host.Run(ctx, installScript); err != nil {
+	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB))); err != nil {
 		return nil, fmt.Errorf("install: %w", err)
 	}
 
@@ -250,13 +251,40 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	return srv, nil
 }
 
-const installScript = `set -e
+// appShareWithLocalPostgres is the fraction of the box the app may use
+// when PostgreSQL shares it (25% goes to shared_buffers, the rest is OS
+// cache for the database). With the database on its own box this rises.
+const appShareWithLocalPostgres = 0.5
+
+// AppMemoryLimit is the GOBANK_MEMORY_LIMIT value for a box with ramGB of
+// memory, or empty when the size is unknown so the app keeps its default.
+func AppMemoryLimit(ramGB float64) string {
+	if ramGB <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%dMB", int(ramGB*1024*appShareWithLocalPostgres))
+}
+
+// installScript installs the binary, writes the deployment's environment
+// (sizing that changes per box or per deploy, as opposed to what cloud-init
+// fixes at first boot), makes the unit read it, and restarts.
+func installScript(memoryLimit string) string {
+	env := ""
+	if memoryLimit != "" {
+		env = "GOBANK_MEMORY_LIMIT=" + memoryLimit + "\n"
+	}
+	return `set -e
 install -m 0755 -o gobank -g gobank /opt/gobank/demo.new /opt/gobank/demo
 rm /opt/gobank/demo.new
+mkdir -p /etc/gobank
+printf '%s' '` + env + `' > /etc/gobank/deploy.env
+grep -q 'EnvironmentFile=-/etc/gobank/deploy.env' /etc/systemd/system/gobank-demo.service || \
+  sed -i '/^\[Service\]/a EnvironmentFile=-/etc/gobank/deploy.env' /etc/systemd/system/gobank-demo.service
 systemctl daemon-reload
 systemctl enable gobank-demo >/dev/null 2>&1
 systemctl restart gobank-demo
 `
+}
 
 func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
 	name := o.Env.ServerName()

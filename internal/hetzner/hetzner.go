@@ -33,6 +33,7 @@ func toServer(s *hcloud.Server) *deploy.Server {
 	out := &deploy.Server{Name: s.Name, Status: string(s.Status)}
 	if s.ServerType != nil {
 		out.Type = s.ServerType.Name
+		out.MemoryGB = float64(s.ServerType.Memory)
 	}
 	if s.PublicNet.IPv4.IP != nil {
 		out.IP = s.PublicNet.IPv4.IP.String()

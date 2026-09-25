@@ -34,7 +34,7 @@ func (c *fakeCloud) Server(_ context.Context, name string) (*Server, error) {
 
 func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, error) {
 	c.created = append(c.created, spec)
-	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location}
+	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4}
 	c.servers[spec.Name] = s
 	return s, nil
 }
@@ -350,5 +350,48 @@ func TestStatusServing(t *testing.T) {
 	}
 	if st.Server == nil || !st.Serving || st.URL != "http://10.0.0.9:1347/" {
 		t.Errorf("status = %+v", st)
+	}
+}
+
+// --- Memory sizing ------------------------------------------------------------
+
+func TestAppMemoryLimitIsHalfTheBoxWithLocalPostgres(t *testing.T) {
+	cases := []struct {
+		ramGB float64
+		want  string
+	}{
+		{4, "2048MB"},
+		{8, "4096MB"},
+		{32, "16384MB"},
+		{0, ""}, // unknown: leave the app's own default
+	}
+	for _, c := range cases {
+		if got := AppMemoryLimit(c.ramGB); got != c.want {
+			t.Errorf("AppMemoryLimit(%v) = %q, want %q", c.ramGB, got, c.want)
+		}
+	}
+}
+
+func TestUpWritesMemoryLimitSizedToTheServer(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", MemoryGB: 8}
+
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"}); err != nil {
+		t.Fatal(err)
+	}
+	runs := strings.Join(h.host.runs, "\n")
+	if !strings.Contains(runs, "GOBANK_MEMORY_LIMIT=4096MB") || !strings.Contains(runs, "/etc/gobank/deploy.env") {
+		t.Errorf("install should write the sized limit to the deploy env file:\n%s", runs)
+	}
+}
+
+func TestUpOnAServerOfUnknownSizeLeavesTheDefault(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33"}
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(h.host.runs, "\n"), "GOBANK_MEMORY_LIMIT=") {
+		t.Error("no RAM figure, so no limit should be written")
 	}
 }

@@ -33,6 +33,11 @@ Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for
 arm64.
 
+`up` sizes the demo's memory to the box: `GOBANK_MEMORY_LIMIT` is set to
+half the server type's RAM (PostgreSQL shares the box) in
+`/etc/gobank/deploy.env`, which the systemd unit reads, so a redeploy can
+change it. The demo's own default, 800MB, is what a browser tab holds.
+
 `up` builds `cmd/demo` from the gobank checkout given by `-src` (default
 `../gobank`) with `CGO_ENABLED=0`, so that checkout's local replace
 directives still apply. Host keys are pinned per project in

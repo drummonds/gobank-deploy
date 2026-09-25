@@ -6,6 +6,9 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -38,7 +42,7 @@ func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, 
 			return nil, err
 		}
 	}
-	auth, err := authMethods()
+	auth, err := authMethods(ip)
 	if err != nil {
 		return nil, err
 	}
@@ -53,13 +57,20 @@ func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, 
 		User:            user,
 		Auth:            auth,
 		HostKeyCallback: acceptNew(d.KnownHosts),
-		Timeout:         timeout,
+		// Negotiate the key types already pinned for this host, as OpenSSH
+		// does; otherwise a host pinned as ed25519 fails as "changed" when
+		// Go's default order picks ecdsa.
+		HostKeyAlgorithms: pinnedAlgos(d.KnownHosts, ip),
+		Timeout:           timeout,
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, "22"), timeout)
+	// The address given to NewClientConn is what the host-key callback
+	// sees, and knownhosts insists on host:port.
+	hostport := net.JoinHostPort(ip, "22")
+	conn, err := net.DialTimeout("tcp", hostport, timeout)
 	if err != nil {
 		return nil, err
 	}
-	c, chans, reqs, err := ssh.NewClientConn(conn, ip, cfg)
+	c, chans, reqs, err := ssh.NewClientConn(conn, hostport, cfg)
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -67,29 +78,60 @@ func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, 
 	return &host{client: ssh.NewClient(c, chans, reqs)}, nil
 }
 
-// authMethods prefers the ssh agent (the keys registered in the cloud
-// project are normally loaded there) and falls back to the default key files.
-func authMethods() ([]ssh.AuthMethod, error) {
-	var methods []ssh.AuthMethod
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			methods = append(methods, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
+// authMethods gathers every signer we can find — the agent named by
+// IdentityAgent in ~/.ssh/config (Bitwarden's, for instance), the default
+// agent, and the IdentityFile / default key files — into ONE publickey
+// method. x/crypto/ssh tries each method name once, so two "publickey"
+// methods would leave the second untried.
+func authMethods(host string) ([]ssh.AuthMethod, error) {
+	var signers []ssh.Signer
+	home, _ := os.UserHomeDir()
+	expand := func(p string) string {
+		if strings.HasPrefix(p, "~/") {
+			return filepath.Join(home, p[2:])
+		}
+		return p
+	}
+
+	sockets := []string{os.Getenv("SSH_AUTH_SOCK")}
+	if a := ssh_config.Get(host, "IdentityAgent"); a != "" && a != "none" {
+		sockets = append([]string{expand(a)}, sockets...)
+	}
+	for _, sock := range sockets {
+		if sock == "" {
+			continue
+		}
+		conn, err := net.Dial("unix", sock)
+		if err != nil {
+			continue
+		}
+		if s, err := agent.NewClient(conn).Signers(); err == nil {
+			signers = append(signers, s...)
 		}
 	}
-	home, _ := os.UserHomeDir()
-	for _, name := range []string{"id_ed25519", "id_rsa"} {
-		pem, err := os.ReadFile(filepath.Join(home, ".ssh", name))
+
+	files := []string{filepath.Join(home, ".ssh", "id_ed25519"), filepath.Join(home, ".ssh", "id_rsa")}
+	if f, _ := ssh_config.GetStrict(host, "IdentityFile"); f != "" {
+		files = append([]string{expand(f)}, files...)
+	}
+	seen := map[string]bool{}
+	for _, name := range files {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		pem, err := os.ReadFile(name)
 		if err != nil {
 			continue
 		}
 		if signer, err := ssh.ParsePrivateKey(pem); err == nil {
-			methods = append(methods, ssh.PublicKeys(signer))
+			signers = append(signers, signer)
 		}
 	}
-	if len(methods) == 0 {
-		return nil, errors.New("no ssh credentials: no agent (SSH_AUTH_SOCK) and no ~/.ssh/id_ed25519 or id_rsa")
+	if len(signers) == 0 {
+		return nil, errors.New("no ssh keys found: nothing in the agent (IdentityAgent / SSH_AUTH_SOCK) and no readable ~/.ssh/id_ed25519 or id_rsa")
 	}
-	return methods, nil
+	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}, nil
 }
 
 // acceptNew pins unknown hosts into file and rejects changed keys, like
@@ -110,14 +152,14 @@ func acceptNew(file string) ssh.HostKeyCallback {
 		}
 		err = check(hostport, remote, key)
 		var keyErr *knownhosts.KeyError
-		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
-			_, err = fmt.Fprintln(f, knownhosts.Line([]string{hostport}, key))
-			return err
-		}
-		if err != nil {
+		if errors.As(err, &keyErr) {
+			if len(keyErr.Want) == 0 {
+				_, err = fmt.Fprintln(f, knownhosts.Line([]string{hostport}, key))
+				return err
+			}
 			return fmt.Errorf("host key for %s changed (server replaced?): %w — if expected, remove its line from %s", hostport, err, file)
 		}
-		return nil
+		return err
 	}
 }
 
@@ -142,13 +184,57 @@ func forgetHost(file, ip string) error {
 	return os.WriteFile(file, []byte(strings.Join(keep, "\n")), 0o600)
 }
 
+// hostMatches handles plain and comma-separated patterns and OpenSSH's
+// hashed form (|1|salt|hmac-sha1), for the host as knownhosts writes it:
+// bare for port 22, [host]:port otherwise.
 func hostMatches(pattern, ip string) bool {
 	for p := range strings.SplitSeq(pattern, ",") {
 		if p == ip || p == "["+ip+"]:22" {
 			return true
 		}
+		if strings.HasPrefix(p, "|1|") && (hashedMatches(p, ip) || hashedMatches(p, "["+ip+"]:22")) {
+			return true
+		}
 	}
 	return false
+}
+
+func hashedMatches(pattern, host string) bool {
+	parts := strings.Split(pattern, "|") // "", "1", salt, hash
+	if len(parts) != 4 {
+		return false
+	}
+	salt, err := base64.StdEncoding.DecodeString(parts[2])
+	if err != nil {
+		return false
+	}
+	want, err := base64.StdEncoding.DecodeString(parts[3])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha1.New, salt)
+	mac.Write([]byte(host))
+	return hmac.Equal(mac.Sum(nil), want)
+}
+
+// pinnedAlgos lists the key types already on file for ip, in file order.
+// Empty when nothing is pinned, which leaves the client's default order.
+func pinnedAlgos(file, ip string) []string {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var algos []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") || strings.HasPrefix(fields[0], "@") {
+			continue
+		}
+		if hostMatches(fields[0], ip) {
+			algos = append(algos, fields[1])
+		}
+	}
+	return algos
 }
 
 type host struct {

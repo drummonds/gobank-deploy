@@ -15,6 +15,7 @@ inside the box first; expand/contract migrations through gobank-db.
 
 - [x] Story 1 — `up`, `down`, `status` for a named environment (port of
       the bash scripts, tested behind interfaces)
+- [x] Story 1a — `ui`: environment states and controls on a polling page
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

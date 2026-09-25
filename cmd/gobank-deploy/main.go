@@ -5,6 +5,7 @@
 //	gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<type>]
 //	gobank-deploy down <env> [-y]
 //	gobank-deploy status <env>
+//	gobank-deploy ui [-addr :1348] [-envs prod,preprod]
 //
 // Needs HCLOUD_TOKEN in the environment: run via `tp secrets gobank-deploy ...`.
 // Creating a server starts billing, so `up` on a missing server refuses
@@ -17,6 +18,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,6 +29,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/ui"
 )
 
 var version = "dev"
@@ -34,6 +39,7 @@ func usage() {
   gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<hcloud type>]
   gobank-deploy down <env> [-y]
   gobank-deploy status <env>
+  gobank-deploy ui [-addr :1348] [-envs prod,preprod]   web page: states and controls
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -59,26 +65,55 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	token := os.Getenv("HCLOUD_TOKEN")
+	if token == "" {
+		fmt.Fprintln(os.Stderr, "HCLOUD_TOKEN not set — run via: tp secrets gobank-deploy", strings.Join(os.Args[1:], " "))
+		os.Exit(1)
+	}
+	cloud := hetzner.New(token)
+	newDeployer := func(out io.Writer) *deploy.Deployer {
+		return &deploy.Deployer{
+			Cloud: cloud,
+			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts")},
+			Build: &remote.Builder{Src: *src, Dir: *buildDir},
+			Probe: &remote.Prober{},
+			Out:   out,
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if cmd == "ui" {
+		fs := flag.NewFlagSet("ui", flag.ExitOnError)
+		addr := fs.String("addr", ":1348", "listen address")
+		names := fs.String("envs", "prod,preprod", "environments to show")
+		_ = fs.Parse(args)
+		var envs []deploy.Environment
+		for n := range strings.SplitSeq(*names, ",") {
+			if n = strings.TrimSpace(n); n != "" {
+				envs = append(envs, deploy.Environment{Name: n})
+			}
+		}
+		page, err := ui.New(ui.DeployerFactory(newDeployer), envs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		page.Version = "gobank-deploy " + version
+		fmt.Printf("gobank environments UI on http://localhost%s/\n", *addr)
+		srv := &http.Server{Addr: *addr, Handler: page}
+		go func() { <-ctx.Done(); srv.Close() }()
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
 		usage()
 	}
 	env := deploy.Environment{Name: args[0]}
 	args = args[1:]
-
-	token := os.Getenv("HCLOUD_TOKEN")
-	if token == "" {
-		fmt.Fprintln(os.Stderr, "HCLOUD_TOKEN not set — run via: tp secrets gobank-deploy", cmd, env.Name)
-		os.Exit(1)
-	}
-	d := &deploy.Deployer{
-		Cloud: hetzner.New(token),
-		Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts")},
-		Build: &remote.Builder{Src: *src, Dir: *buildDir},
-		Probe: &remote.Prober{},
-		Out:   os.Stdout,
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	d := newDeployer(os.Stdout)
 
 	var err error
 	switch cmd {

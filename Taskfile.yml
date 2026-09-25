@@ -54,6 +54,11 @@ tasks:
     cmds:
       - go run ./cmd/gobank-deploy status {{.ENV | default "preprod"}}
 
+  ui:
+    desc: "Web page with each environment's state and create/redeploy/down controls (task ui ENVS=prod,preprod); run via tp secrets"
+    cmds:
+      - go run ./cmd/gobank-deploy -src {{.SRC | default "../gobank"}} ui -addr {{.ADDR | default ":1348"}} -envs {{.ENVS | default "prod,preprod"}}
+
   clean:
     desc: Remove build output
     cmds:

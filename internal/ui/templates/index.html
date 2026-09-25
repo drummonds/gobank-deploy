@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gobank environments</title>
+  <link rel="stylesheet" href="/assets/bulma.min.css">
+  <link rel="icon" href="/favicon.ico">
+  <meta http-equiv="refresh" content="{{.refresh}}">
+</head>
+<body>
+  <nav class="navbar is-primary" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+      <span class="navbar-item has-text-weight-bold">gobank environments</span>
+    </div>
+    <div class="navbar-end">
+      <div class="navbar-item"><span class="tag">{{.version}}</span></div>
+    </div>
+  </nav>
+
+  <section class="section">
+    <div class="container">
+      <table class="table is-fullwidth is-striped">
+        <thead>
+          <tr><th>Environment</th><th>State</th><th>Server</th><th>Address</th><th>Controls</th></tr>
+        </thead>
+        <tbody>
+        {{range .envs}}
+          <tr>
+            <td class="has-text-weight-bold">{{.Name}}</td>
+            <td>
+              {{if .Job}}{{if .Job.Running}}<span class="tag is-warning">Working: {{.Job.Action}}</span>
+              {{else if .Job.Err}}<span class="tag is-danger">Failed: {{.Job.Action}}</span>
+              {{else}}<span class="tag is-info">Finished: {{.Job.Action}}</span>{{end}}<br>{{end}}
+              {{if .Error}}<span class="tag is-danger">Error</span> <small>{{.Error}}</small>
+              {{else if not .Server}}<span class="tag is-light">Not provisioned</span> <small>no billing</small>
+              {{else if .Serving}}<span class="tag is-success">Serving</span>
+              {{else}}<span class="tag is-danger">Not answering</span> <small>booting?</small>{{end}}
+            </td>
+            <td>{{if .Server}}{{.Server.Type}} {{.Server.Status}} {{.Server.Location}}{{end}}</td>
+            <td>{{if .Server}}<a href="{{.URL}}">{{.URL}}</a><br><small>{{.Server.IP}}</small>{{end}}</td>
+            <td>
+              {{if and .Job .Job.Running}}
+                <form method="post" action="/env/{{.Name}}/cancel"><button class="button is-small is-warning">Cancel</button></form>
+              {{else if .Server}}
+                <div class="buttons are-small">
+                  <form method="post" action="/env/{{.Name}}/redeploy"><button class="button is-small is-link">Redeploy</button></form>
+                  <form method="post" action="/env/{{.Name}}/down" class="ml-2">
+                    <label class="checkbox is-size-7"><input type="checkbox" name="confirm" required> delete server and database</label>
+                    <button class="button is-small is-danger">Down</button>
+                  </form>
+                </div>
+              {{else}}
+                <form method="post" action="/env/{{.Name}}/create">
+                  <div class="field has-addons">
+                    <div class="control"><div class="select is-small"><select name="scale">
+                      <option value="small">small (cx23)</option>
+                      <option value="medium">medium (cx33)</option>
+                      <option value="large">large (cx53)</option>
+                      <option value="xl">xl (ccx33)</option>
+                    </select></div></div>
+                    <div class="control"><button class="button is-small is-success">Create</button></div>
+                  </div>
+                  <small class="has-text-grey">starts billing</small>
+                </form>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+
+      {{range .envs}}{{if .Job}}
+      <div class="box">
+        <p class="has-text-weight-bold">{{.Name}}: {{.Job.Action}} started {{.Job.Started}}
+          {{if .Job.Err}}<span class="has-text-danger">— {{.Job.Err}}</span>{{end}}</p>
+        <pre>{{.Job.Log}}</pre>
+      </div>
+      {{end}}{{end}}
+      <p class="is-size-7 has-text-grey">Page refreshes every {{.refresh}}s. Servers bill until deleted.</p>
+    </div>
+  </section>
+</body>
+</html>

@@ -21,6 +21,14 @@ tp secrets gobank-deploy status preprod
 tp secrets gobank-deploy down preprod                    # asks; -y to skip
 ```
 
+A web page with the same controls, one row per environment, polling
+every few seconds while a job runs:
+
+```sh
+tp secrets task ui                       # http://localhost:1348/
+tp secrets task ui ENVS=prod,preprod,demo
+```
+
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for
 arm64.
@@ -44,6 +52,8 @@ forgotten first because Hetzner reuses addresses.
 - `internal/hetzner` — `Cloud` on hcloud-go.
 - `internal/remote` — ssh `Dialer` with host-key pinning, Go `Builder`,
   HTTP `Prober`.
+- `internal/ui` — the lofigui page: states, create / redeploy / down / cancel,
+  one job per environment with its log; tested against a fake `Operator`.
 - `cmd/gobank-deploy` — the command.
 
 ## Links

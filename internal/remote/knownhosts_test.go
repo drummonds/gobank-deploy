@@ -2,7 +2,10 @@ package remote
 
 import (
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
 	"net"
 	"os"
 	"path/filepath"
@@ -71,5 +74,54 @@ func TestForgetHostDropsOnlyThatIP(t *testing.T) {
 func TestForgetHostOnMissingFileIsFine(t *testing.T) {
 	if err := forgetHost(filepath.Join(t.TempDir(), "nope"), "10.0.0.7"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// hashedPattern builds an OpenSSH HashKnownHosts entry (|1|salt|hmac) for host.
+func hashedPattern(t *testing.T, host string) string {
+	t.Helper()
+	salt := make([]byte, 20)
+	if _, err := rand.Read(salt); err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha1.New, salt)
+	mac.Write([]byte(host))
+	return "|1|" + base64.StdEncoding.EncodeToString(salt) + "|" + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func TestPinnedAlgosPreferKeyTypesAlreadyOnFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "known_hosts")
+	content := strings.Join([]string{
+		"10.0.0.7 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBHnothing",
+		hashedPattern(t, "10.0.0.7") + " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHnothing",
+		"10.0.0.8 ssh-rsa AAAAB3nothing",
+	}, "\n") + "\n"
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := pinnedAlgos(file, "10.0.0.7")
+	if strings.Join(got, ",") != "ecdsa-sha2-nistp256,ssh-ed25519" {
+		t.Errorf("pinnedAlgos = %v", got)
+	}
+	if got := pinnedAlgos(file, "10.0.0.9"); len(got) != 0 {
+		t.Errorf("unknown host should pin nothing, got %v", got)
+	}
+	if got := pinnedAlgos(filepath.Join(t.TempDir(), "missing"), "10.0.0.7"); len(got) != 0 {
+		t.Errorf("missing file should pin nothing, got %v", got)
+	}
+}
+
+func TestForgetHostDropsHashedEntriesToo(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "known_hosts")
+	content := hashedPattern(t, "10.0.0.7") + " ssh-ed25519 AAAAC3nothing\n10.0.0.8 ssh-rsa AAAAB3nothing\n"
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := forgetHost(file, "10.0.0.7"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(file)
+	if strings.Contains(string(data), "ssh-ed25519") || !strings.Contains(string(data), "10.0.0.8") {
+		t.Errorf("after forget:\n%s", data)
 	}
 }

@@ -1,6 +1,6 @@
 # gobank-deploy
 
-Deployment orchestrator for [gobank](https://codeberg.org/hum3/gobank)
+Deployment orchestrator for [gobank](https://git.bytestone.uk/hum3/gobank)
 environments. One environment (`prod`, `preprod`, ...) is one Hetzner Cloud
 server running PostgreSQL and the Model Bank demo. The orchestrator
 creates it, puts a release on it, reports on it and deletes it.
@@ -64,5 +64,5 @@ forgotten first because Hetzner reuses addresses.
 ## Links
 
 - Documentation: (not yet published)
-- Source: https://codeberg.org/hum3/gobank-deploy
+- Source: https://git.bytestone.uk/hum3/gobank-deploy
 - Mirror: https://github.com/drummonds/gobank-deploy

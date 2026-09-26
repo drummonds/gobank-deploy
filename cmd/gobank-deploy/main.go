@@ -6,6 +6,12 @@
 //	gobank-deploy down <env> [-y]
 //	gobank-deploy status <env>
 //	gobank-deploy ui [-addr :1348] [-envs prod,preprod]
+//	gobank-deploy build [-out build/releases]
+//
+// A host that cannot build cmd/demo (the hydrogen appliance) deploys from
+// a release store instead: -store DIR, filled by `build` on the laptop and
+// copied over (task push). Its ssh identity comes from GOBANK_DEPLOY_SSH_KEY
+// (base64 of a private key in PEM) since there is no agent or ~/.ssh.
 //
 // Needs HCLOUD_TOKEN in the environment: run via `tp secrets gobank-deploy ...`.
 // Creating a server starts billing, so `up` on a missing server refuses
@@ -16,6 +22,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -29,6 +36,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/store"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/ui"
 )
 
@@ -40,14 +48,18 @@ func usage() {
   gobank-deploy down <env> [-y]
   gobank-deploy status <env>
   gobank-deploy ui [-addr :1348] [-envs prod,preprod]   web page: states and controls
-                                                       (status and down only where cmd/demo cannot be built)
+                                                       (status and down only where no release can be had)
+  gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
+                                                       store (default build/releases); no token needed
   gobank-deploy version
 
 Global flags (before the subcommand):
   -src DIR     gobank checkout to build cmd/demo from (default ../gobank)
   -build DIR   build directory for the binary and pinned host keys (default build)
+  -store DIR   deploy from this release store instead of building (the appliance)
 
-HCLOUD_TOKEN must be set: run via  tp secrets gobank-deploy ...`)
+HCLOUD_TOKEN must be set: run via  tp secrets gobank-deploy ...
+GOBANK_DEPLOY_SSH_KEY, if set, is base64 of a private key in PEM to ssh with.`)
 	os.Exit(2)
 }
 
@@ -55,6 +67,7 @@ func main() {
 	global := flag.NewFlagSet("gobank-deploy", flag.ExitOnError)
 	src := global.String("src", "../gobank", "gobank checkout to build from")
 	buildDir := global.String("build", "build", "build directory")
+	storeDir := global.String("store", "", "release store to deploy from instead of building")
 	global.Usage = usage
 	_ = global.Parse(os.Args[1:])
 	args := global.Args()
@@ -66,17 +79,38 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if cmd == "build" {
+		fs := flag.NewFlagSet("build", flag.ExitOnError)
+		out := fs.String("out", filepath.Join(*buildDir, "releases"), "release store to build into")
+		_ = fs.Parse(args)
+		if err := buildRelease(context.Background(), *src, *buildDir, *out); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	identity, err := identityFromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	token := os.Getenv("HCLOUD_TOKEN")
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "HCLOUD_TOKEN not set — run via: tp secrets gobank-deploy", strings.Join(os.Args[1:], " "))
 		os.Exit(1)
 	}
 	cloud := hetzner.New(token)
+	var builder deploy.Builder = &remote.Builder{Src: *src, Dir: *buildDir}
+	upUnavailable := func() string { return remote.CanBuild(*src) }
+	if *storeDir != "" {
+		st := &store.Store{Dir: *storeDir}
+		builder, upUnavailable = st, st.Unavailable
+	}
 	newDeployer := func(out io.Writer) *deploy.Deployer {
 		return &deploy.Deployer{
 			Cloud: cloud,
-			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts")},
-			Build: &remote.Builder{Src: *src, Dir: *buildDir},
+			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts"), Identity: identity},
+			Build: builder,
 			Probe: &remote.Prober{},
 			Out:   out,
 		}
@@ -100,8 +134,8 @@ func main() {
 			log.Fatal(err)
 		}
 		page.Version = "gobank-deploy " + version
-		if why := remote.CanBuild(*src); why != "" {
-			page.UpUnavailable = why
+		page.UpUnavailable = upUnavailable
+		if why := upUnavailable(); why != "" {
 			fmt.Println("status and down only:", why)
 		}
 		fmt.Printf("gobank environments UI on http://localhost%s/\n", *addr)
@@ -120,7 +154,6 @@ func main() {
 	args = args[1:]
 	d := newDeployer(os.Stdout)
 
-	var err error
 	switch cmd {
 	case "up":
 		fs := flag.NewFlagSet("up", flag.ExitOnError)
@@ -153,6 +186,43 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// identityFromEnv decodes GOBANK_DEPLOY_SSH_KEY (base64 of a PEM private
+// key), or returns nil when unset.
+func identityFromEnv() ([]byte, error) {
+	v := os.Getenv("GOBANK_DEPLOY_SSH_KEY")
+	if v == "" {
+		return nil, nil
+	}
+	pem, err := base64.StdEncoding.DecodeString(strings.TrimSpace(v))
+	if err != nil {
+		return nil, fmt.Errorf("GOBANK_DEPLOY_SSH_KEY is not base64: %w", err)
+	}
+	return pem, nil
+}
+
+// buildRelease builds cmd/demo for every server architecture into the
+// release store at out, as one version.
+func buildRelease(ctx context.Context, src, buildDir, out string) error {
+	if why := remote.CanBuild(src); why != "" {
+		return fmt.Errorf("cannot build: %s", why)
+	}
+	st := &store.Store{Dir: out}
+	var ver string
+	for _, goarch := range []string{"amd64", "arm64"} {
+		b := &remote.Builder{Src: src, Dir: filepath.Join(buildDir, "linux-"+goarch)}
+		rel, err := b.Build(ctx, goarch)
+		if err != nil {
+			return err
+		}
+		if err := st.Put(rel.Version, goarch, rel.Binary); err != nil {
+			return err
+		}
+		ver = rel.Version
+	}
+	fmt.Printf("release %s in %s (latest)\n", ver, out)
+	return nil
 }
 
 func confirm(prompt string) bool {

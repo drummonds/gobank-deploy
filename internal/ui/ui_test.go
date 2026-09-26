@@ -237,7 +237,7 @@ func TestUnknownEnvironmentIs404(t *testing.T) {
 // off, but offers nothing that would need a release.
 func TestWithoutABuilderOnlyStatusAndDownAreOffered(t *testing.T) {
 	const reason = "no Go toolchain on this host"
-	ts, op := newTestServerWith(t, func(s *Server) { s.UpUnavailable = reason })
+	ts, op := newTestServerWith(t, func(s *Server) { s.UpUnavailable = func() string { return reason } })
 	_, body := get(t, ts, "/")
 	for _, want := range []string{reason, "Serving", "Not provisioned", `action="/env/prod/down"`} {
 		if !strings.Contains(body, want) {

@@ -36,13 +36,28 @@ LAN gokrazy appliance, as a package of its `gok_local` instance config:
 
 ```json
 "git.bytestone.uk/hum3/gobank-deploy/cmd/gobank-deploy": {
-  "CommandLineFlags": ["-build", "/perm/gobank-deploy", "ui", "-addr", ":1348", "-envs", "prod,preprod"],
-  "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}"],
+  "CommandLineFlags": ["-build", "/perm/gobank-deploy", "-store", "/perm/gobank-deploy/releases",
+                       "ui", "-addr", ":1348", "-envs", "prod,preprod"],
+  "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}", "GOBANK_DEPLOY_SSH_KEY=${GOBANK_DEPLOY_SSH_KEY}"],
   "WaitForClock": true
 }
 ```
 
-with Caddy proxying `gobank-deploy.lan.drummonds.net` to `:1348`.
+with Caddy proxying `gobank-deploy.lan.drummonds.net` to `:1348`. The
+appliance cannot build `cmd/demo`, so it deploys from a **release store**:
+
+```sh
+task build    # cmd/demo for linux amd64+arm64 into build/releases/<version>/, marks it latest
+task push     # build, then copy the latest release to hydrogen:/perm/gobank-deploy/releases
+```
+
+Create and Redeploy on the page deploy whatever was pushed last; pushing
+an older version again is a rollback. Until something has been pushed the
+page offers status and Down only, and says why. The appliance's ssh
+identity is `GOBANK_DEPLOY_SSH_KEY` (base64 of the private key in PEM,
+from the gokrazy secrets note); its public half is registered in the
+Hetzner project so new servers accept it, and was added to servers that
+predate it by hand. Pinned host keys live in `/perm/gobank-deploy/known_hosts`.
 
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for

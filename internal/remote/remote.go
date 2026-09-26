@@ -34,6 +34,9 @@ type Dialer struct {
 	KnownHosts string
 	User       string        // defaults to root
 	Timeout    time.Duration // per connection attempt; defaults to 5s
+	// Identity is a private key in PEM, for a host with no ssh agent and no
+	// ~/.ssh (the gokrazy appliance). Tried alongside whatever else is found.
+	Identity []byte
 }
 
 func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, error) {
@@ -42,7 +45,7 @@ func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, 
 			return nil, err
 		}
 	}
-	auth, err := authMethods(ip)
+	auth, err := authMethods(ip, d.Identity)
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +86,15 @@ func (d *Dialer) Dial(ctx context.Context, ip string, fresh bool) (deploy.Host, 
 // agent, and the IdentityFile / default key files — into ONE publickey
 // method. x/crypto/ssh tries each method name once, so two "publickey"
 // methods would leave the second untried.
-func authMethods(host string) ([]ssh.AuthMethod, error) {
+func authMethods(host string, identity []byte) ([]ssh.AuthMethod, error) {
 	var signers []ssh.Signer
+	if len(identity) > 0 {
+		signer, err := ssh.ParsePrivateKey(identity)
+		if err != nil {
+			return nil, fmt.Errorf("identity: %w", err)
+		}
+		signers = append(signers, signer)
+	}
 	home, _ := os.UserHomeDir()
 	expand := func(p string) string {
 		if strings.HasPrefix(p, "~/") {
@@ -129,7 +139,7 @@ func authMethods(host string) ([]ssh.AuthMethod, error) {
 		}
 	}
 	if len(signers) == 0 {
-		return nil, errors.New("no ssh keys found: nothing in the agent (IdentityAgent / SSH_AUTH_SOCK) and no readable ~/.ssh/id_ed25519 or id_rsa")
+		return nil, errors.New("no ssh keys found: nothing in the agent (IdentityAgent / SSH_AUTH_SOCK) and no readable ~/.ssh/id_ed25519 or id_rsa, and no identity given")
 	}
 	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}, nil
 }

@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `build` subcommand: cmd/demo for linux amd64 and arm64 into a release
+  store (`build/releases/<version>/demo-linux-<goarch>` plus `latest`), and
+  `task push` to copy the latest into hydrogen's `/perm/gobank-deploy/releases`.
+- `-store DIR`: deploy from a release store instead of building, for a host
+  with no toolchain. Create / Redeploy become available on the page as soon
+  as the store has a release (checked per request, no restart).
+- `GOBANK_DEPLOY_SSH_KEY`: base64 of a PEM private key to ssh with, for a
+  host with no agent and no ~/.ssh (the appliance).
 - `ui` on a host that cannot build `cmd/demo` (no Go toolchain, or no gobank
   checkout at `-src`) shows status and offers Down only, says why, and
   refuses create / redeploy requests with 403. This is the mode for the

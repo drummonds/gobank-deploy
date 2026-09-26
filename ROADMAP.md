@@ -18,11 +18,12 @@ inside the box first; expand/contract migrations through gobank-db.
 - [x] Story 1a — `ui`: environment states and controls on a polling page
 - [x] Story 1b — `ui` as a status-and-down console on hydrogen (gokrazy):
       no toolchain there, so nothing that needs a release is offered
-- [ ] Story 1c — `up` from a release: gobank publishes `demo` binaries
-      (linux/amd64, arm64) as Forgejo release assets, built where the
-      charts-fork replace applies; a Fetcher beside the Builder installs a
-      named version. Unblocks Create / Redeploy on hydrogen and is what
-      Story 4 promotes
+- [x] Story 1c — `up` from a release store: `build` on the laptop puts
+      `demo` for linux/amd64 and arm64 (built where the charts-fork replace
+      applies) into `build/releases`, `task push` copies the latest into
+      hydrogen's `/perm/gobank-deploy/releases`, and `-store` makes that the
+      Deployer's Builder there. Create / Redeploy on hydrogen deploy what
+      was last pushed; pushing an older version again is a rollback
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys
@@ -30,8 +31,9 @@ inside the box first; expand/contract migrations through gobank-db.
       same release to prod
 - [ ] Story 5 — Blue/green in the box: second systemd unit, port switch,
       rollback is redeploying the previous release
-- [ ] Story 6 — Run on gokrazy (pure Go; ssh agent replaced by a key on
-      the appliance)
+- [x] Story 6 — Run on gokrazy (pure Go; ssh agent replaced by a key on
+      the appliance): `GOBANK_DEPLOY_SSH_KEY` from the gokrazy secrets,
+      known_hosts and the release store on /perm. Done by 1b + 1c
 
 ## Later
 

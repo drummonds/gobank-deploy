@@ -104,10 +104,12 @@ type Server struct {
 	ctrl    *lofigui.Controller
 	mux     *http.ServeMux
 	Version string
-	// UpUnavailable, when set, is why this host cannot run up (no Go
-	// toolchain or gobank checkout, say): the page then offers status and
-	// down only, and create / redeploy requests are refused.
-	UpUnavailable string
+	// UpUnavailable, when set and returning a reason, is why this host
+	// cannot run up right now (no Go toolchain or gobank checkout, an empty
+	// release store): the page then offers status and down only, and
+	// create / redeploy requests are refused. Asked on every request, so a
+	// store that fills up later is noticed without a restart.
+	UpUnavailable func() string
 
 	mu   sync.Mutex
 	jobs map[string]*job // latest job per environment
@@ -163,8 +165,15 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		"envs":          views,
 		"refresh":       refresh,
 		"version":       s.Version,
-		"upUnavailable": s.UpUnavailable,
+		"upUnavailable": s.upUnavailable(),
 	})
+}
+
+func (s *Server) upUnavailable() string {
+	if s.UpUnavailable == nil {
+		return ""
+	}
+	return s.UpUnavailable()
 }
 
 var errBusy = errors.New("a job is already running for this environment")
@@ -198,8 +207,8 @@ func (s *Server) action(name string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		if s.UpUnavailable != "" && name != "down" {
-			http.Error(w, fmt.Sprintf("%s: %s not available here: %s", env.Name, name, s.UpUnavailable), http.StatusForbidden)
+		if why := s.upUnavailable(); why != "" && name != "down" {
+			http.Error(w, fmt.Sprintf("%s: %s not available here: %s", env.Name, name, why), http.StatusForbidden)
 			return
 		}
 		var run func(ctx context.Context, out io.Writer) error

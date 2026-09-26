@@ -59,6 +59,25 @@ tasks:
     cmds:
       - go run ./cmd/gobank-deploy -src {{.SRC | default "../gobank"}} ui -addr {{.ADDR | default ":1348"}} -envs {{.ENVS | default "prod,preprod"}}
 
+  build:
+    desc: Build cmd/demo for linux amd64+arm64 into build/releases (no token needed)
+    cmds:
+      - go run ./cmd/gobank-deploy -src {{.SRC | default "../gobank"}} build
+
+  push:
+    desc: Build, then copy the latest release into hydrogen's store at /perm/gobank-deploy/releases over breakglass
+    deps: [build]
+    vars:
+      GOK_PARENT: '{{.HOME}}/minor/gok_local'
+      SSH: ssh -o BatchMode=yes -o ProxyCommand="{{.HOME}}/go/bin/breakglass -parent_dir {{.GOK_PARENT}} -proxy hydrogen"
+      DST: /perm/gobank-deploy/releases
+    cmds:
+      - |
+        VER=$(cat build/releases/latest)
+        {{.SSH}} hydrogen "mkdir -p {{.DST}}"
+        tar -C build/releases -cf - "$VER" latest | {{.SSH}} hydrogen "tar -xf - -C {{.DST}}"
+        {{.SSH}} hydrogen "echo latest: \$(cat {{.DST}}/latest); ls -l {{.DST}}/$VER"
+
   clean:
     desc: Remove build output
     cmds:

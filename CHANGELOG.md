@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `ui` lists every `gobank-*` server in the Hetzner project alongside the
+  `-envs` names, and has a New environment form (name + scale) so the
+  list is no longer fixed at startup. `demo` is back in the default
+  `-envs` (`prod,preprod,demo`).
 - `build` subcommand: cmd/demo for linux amd64 and arm64 into a release
   store (`build/releases/<version>/demo-linux-<goarch>` plus `latest`), and
   `task push` to copy the latest into hydrogen's `/perm/gobank-deploy/releases`.

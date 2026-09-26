@@ -29,6 +29,18 @@ func (h *Cloud) Server(ctx context.Context, name string) (*deploy.Server, error)
 	return toServer(s), nil
 }
 
+func (h *Cloud) Servers(ctx context.Context) ([]*deploy.Server, error) {
+	all, err := h.c.Server.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*deploy.Server, 0, len(all))
+	for _, s := range all {
+		out = append(out, toServer(s))
+	}
+	return out, nil
+}
+
 func toServer(s *hcloud.Server) *deploy.Server {
 	out := &deploy.Server{Name: s.Name, Status: string(s.Status)}
 	if s.ServerType != nil {

@@ -71,6 +71,24 @@
         {{end}}
         </tbody>
       </table>
+      {{if .listError}}<p class="has-text-danger is-size-7">Could not list the project's servers: {{.listError}}. Only configured environments are shown.</p>{{end}}
+
+      {{if not .upUnavailable}}
+      <form method="post" action="/env" class="mb-5">
+        <label class="label is-small">New environment</label>
+        <div class="field has-addons">
+          <div class="control"><input class="input is-small" type="text" name="name" placeholder="demo" pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" required title="lower-case letters, digits and hyphens"></div>
+          <div class="control"><div class="select is-small"><select name="scale">
+            <option value="small">small (cx23)</option>
+            <option value="medium">medium (cx33)</option>
+            <option value="large">large (cx53)</option>
+            <option value="xl">xl (ccx33)</option>
+          </select></div></div>
+          <div class="control"><button class="button is-small is-success">Create</button></div>
+        </div>
+        <small class="has-text-grey">starts billing; the environment is listed while it exists</small>
+      </form>
+      {{end}}
 
       {{range .envs}}{{if .Job}}
       <div class="box">

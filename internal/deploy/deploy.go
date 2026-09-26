@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -23,8 +24,11 @@ type Environment struct {
 	Name string
 }
 
+// serverPrefix names every environment's server: gobank-<env>.
+const serverPrefix = "gobank-"
+
 // ServerName is the cloud server (and firewall) name for the environment.
-func (e Environment) ServerName() string { return "gobank-" + e.Name }
+func (e Environment) ServerName() string { return serverPrefix + e.Name }
 
 // Server is a provisioned cloud server as the provider reports it.
 type Server struct {
@@ -71,6 +75,8 @@ type Cloud interface {
 	CreateFirewall(ctx context.Context, name string, rules []FirewallRule) error
 	DeleteFirewall(ctx context.Context, name string) error
 	SSHKeys(ctx context.Context) ([]string, error)
+	// Servers lists every server in the project.
+	Servers(ctx context.Context) ([]*Server, error)
 }
 
 // Host is a root shell on a server.
@@ -388,6 +394,23 @@ func (d *Deployer) Down(ctx context.Context, env Environment) error {
 	}
 	d.printf("done — nothing left billing\n")
 	return nil
+}
+
+// Environments are the environments with a server in the cloud project,
+// sorted by name: anything named gobank-<env>, whoever created it.
+func (d *Deployer) Environments(ctx context.Context) ([]Environment, error) {
+	servers, err := d.Cloud.Servers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list servers: %w", err)
+	}
+	var envs []Environment
+	for _, s := range servers {
+		if name, ok := strings.CutPrefix(s.Name, serverPrefix); ok {
+			envs = append(envs, Environment{Name: name})
+		}
+	}
+	slices.SortFunc(envs, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
+	return envs, nil
 }
 
 // Status reports whether the environment is provisioned and answering.

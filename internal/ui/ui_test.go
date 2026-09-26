@@ -2,11 +2,13 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,7 +21,8 @@ import (
 // until released so tests can observe the running state.
 type fakeOperator struct {
 	mu       sync.Mutex
-	statuses map[string]deploy.Status
+	statuses map[string]deploy.Status // provisioned environments
+	envsErr  error
 	ups      []deploy.UpOptions
 	downs    []deploy.Environment
 	release  chan struct{}
@@ -28,6 +31,22 @@ type fakeOperator struct {
 
 func newFakeOperator() *fakeOperator {
 	return &fakeOperator{statuses: map[string]deploy.Status{}, release: make(chan struct{})}
+}
+
+func (f *fakeOperator) Environments(context.Context) ([]deploy.Environment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.envsErr != nil {
+		return nil, f.envsErr
+	}
+	var envs []deploy.Environment
+	for name, st := range f.statuses {
+		if st.Server != nil {
+			envs = append(envs, deploy.Environment{Name: name})
+		}
+	}
+	slices.SortFunc(envs, func(a, b deploy.Environment) int { return strings.Compare(a.Name, b.Name) })
+	return envs, nil
 }
 
 func (f *fakeOperator) Status(_ context.Context, env deploy.Environment) (deploy.Status, error) {
@@ -222,6 +241,90 @@ func TestCancelStopsARunningJob(t *testing.T) {
 	_, body := get(t, ts, "/")
 	if !strings.Contains(body, "Failed") {
 		t.Errorf("cancelled job should show as failed:\n%s", body)
+	}
+}
+
+// The list is the configured environments (always shown, provisioned or
+// not) plus whatever gobank servers exist in the project.
+func TestPageListsConfiguredAndExistingEnvironments(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.statuses["demo"] = deploy.Status{Server: &deploy.Server{Name: "gobank-demo", IP: "10.0.0.3", Type: "cx23", Status: "running", Location: "fsn1"}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/")
+	for _, want := range []string{"prod", "preprod", "demo", `action="/env/demo/down"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	if i, j := strings.Index(body, "preprod</td>"), strings.Index(body, "demo</td>"); i > j {
+		t.Error("configured environments come first, in the configured order")
+	}
+	if code := post(t, ts, "/env/demo/redeploy", nil); code != http.StatusSeeOther {
+		t.Errorf("redeploy of a discovered environment: status %d", code)
+	}
+	close(op.release)
+}
+
+func TestPageSaysWhenTheListCannotBeRead(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.envsErr = errors.New("hcloud: 401")
+	op.mu.Unlock()
+	code, body := get(t, ts, "/")
+	if code != 200 || !strings.Contains(body, "hcloud: 401") || !strings.Contains(body, "prod") {
+		t.Errorf("page should still show configured environments and the error (status %d):\n%s", code, body)
+	}
+}
+
+func TestNewEnvironmentIsCreatedByNameAndListed(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, `action="/env"`) || !strings.Contains(body, `name="name"`) {
+		t.Fatalf("page should offer a new environment form:\n%s", body)
+	}
+	code := post(t, ts, "/env", url.Values{"name": {"demo"}, "scale": {"large"}})
+	if code != http.StatusSeeOther {
+		t.Fatalf("status %d, want redirect", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.ups) == 1 })
+	if o := op.ups[0]; !o.Create || o.Scale != "large" || o.Env.Name != "demo" {
+		t.Errorf("up options = %+v", o)
+	}
+	// Listed while creating, before the cloud knows about it.
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, "demo</td>") || !strings.Contains(body, `action="/env/demo/cancel"`) {
+		t.Errorf("new environment should be a row with its job:\n%s", body)
+	}
+	close(op.release)
+}
+
+func TestNewEnvironmentNameMustBeAHostnameLabel(t *testing.T) {
+	ts, op := newTestServer(t)
+	for _, name := range []string{"", "Prod", "pre prod", "a/b", "-x", strings.Repeat("a", 40)} {
+		if code := post(t, ts, "/env", url.Values{"name": {name}, "scale": {"small"}}); code != http.StatusBadRequest {
+			t.Errorf("name %q: status %d, want 400", name, code)
+		}
+	}
+	if code := post(t, ts, "/env", url.Values{"name": {"prod"}, "scale": {"small"}}); code != http.StatusConflict {
+		t.Errorf("an existing environment: status %d, want 409", code)
+	}
+	if len(op.ups) != 0 {
+		t.Fatal("up must not run for a bad name")
+	}
+}
+
+func TestNewEnvironmentNeedsABuilder(t *testing.T) {
+	ts, op := newTestServerWith(t, func(s *Server) { s.UpUnavailable = func() string { return "no store" } })
+	_, body := get(t, ts, "/")
+	if strings.Contains(body, `action="/env"`) {
+		t.Error("page should not offer a new environment without a builder")
+	}
+	if code := post(t, ts, "/env", url.Values{"name": {"demo"}, "scale": {"small"}}); code != http.StatusForbidden {
+		t.Errorf("status %d, want 403", code)
+	}
+	if len(op.ups) != 0 {
+		t.Fatal("up must not run without a builder")
 	}
 }
 

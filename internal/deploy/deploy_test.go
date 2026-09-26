@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,14 @@ func (c *fakeCloud) DeleteFirewall(_ context.Context, name string) error {
 }
 
 func (c *fakeCloud) SSHKeys(context.Context) ([]string, error) { return c.sshKeys, nil }
+
+func (c *fakeCloud) Servers(context.Context) ([]*Server, error) {
+	var out []*Server
+	for _, s := range c.servers {
+		out = append(out, s)
+	}
+	return out, nil
+}
 
 type fakeHost struct {
 	runs []string
@@ -162,6 +171,22 @@ func TestServerTypeScalePresets(t *testing.T) {
 		if typ != c.typ || goarch != c.goarch {
 			t.Errorf("ServerType(%q) = %q,%q want %q,%q", c.scale, typ, goarch, c.typ, c.goarch)
 		}
+	}
+}
+
+// Environments are whatever gobank servers exist in the cloud project,
+// whoever created them (the old scripts made gobank-demo), by name.
+func TestEnvironmentsAreTheGobankServersInTheProject(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod"}
+	h.cloud.servers["gobank-demo"] = &Server{Name: "gobank-demo"}
+	h.cloud.servers["woodpecker-ci"] = &Server{Name: "woodpecker-ci"}
+	envs, err := h.d.Environments(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Environment{{Name: "demo"}, {Name: "prod"}}; !slices.Equal(envs, want) {
+		t.Errorf("environments = %v, want %v", envs, want)
 	}
 }
 

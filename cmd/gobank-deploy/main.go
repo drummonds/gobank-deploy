@@ -5,7 +5,7 @@
 //	gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<type>]
 //	gobank-deploy down <env> [-y]
 //	gobank-deploy status <env>
-//	gobank-deploy ui [-addr :1348] [-envs prod,preprod]
+//	gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo]
 //	gobank-deploy build [-out build/releases]
 //
 // A host that cannot build cmd/demo (the hydrogen appliance) deploys from
@@ -47,7 +47,9 @@ func usage() {
   gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<hcloud type>]
   gobank-deploy down <env> [-y]
   gobank-deploy status <env>
-  gobank-deploy ui [-addr :1348] [-envs prod,preprod]   web page: states and controls
+  gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo]
+                                                       web page: states and controls for -envs plus every
+                                                       gobank-* server in the project, and a form to add one
                                                        (status and down only where no release can be had)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
@@ -121,7 +123,7 @@ func main() {
 	if cmd == "ui" {
 		fs := flag.NewFlagSet("ui", flag.ExitOnError)
 		addr := fs.String("addr", ":1348", "listen address")
-		names := fs.String("envs", "prod,preprod", "environments to show")
+		names := fs.String("envs", "prod,preprod,demo", "environments always shown, provisioned or not")
 		_ = fs.Parse(args)
 		var envs []deploy.Environment
 		for n := range strings.SplitSeq(*names, ",") {

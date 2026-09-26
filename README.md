@@ -26,8 +26,14 @@ every few seconds while a job runs:
 
 ```sh
 tp secrets task ui                       # http://localhost:1348/
-tp secrets task ui ENVS=prod,preprod,demo
+tp secrets task ui ENVS=prod,preprod     # rows always shown, even when not provisioned
 ```
+
+The rows are the `-envs` names (default `prod,preprod,demo`) plus every
+`gobank-*` server that exists in the Hetzner project, whoever created it.
+A form on the page creates a further environment by name; it stays listed
+while its server exists. So `-envs` is only the standing environments
+worth a "Not provisioned" row.
 
 On a host that cannot build `cmd/demo` (no Go toolchain or no gobank
 checkout at `-src`), the page shows status and offers Down only; Create and
@@ -37,7 +43,7 @@ LAN gokrazy appliance, as a package of its `gok_local` instance config:
 ```json
 "git.bytestone.uk/hum3/gobank-deploy/cmd/gobank-deploy": {
   "CommandLineFlags": ["-build", "/perm/gobank-deploy", "-store", "/perm/gobank-deploy/releases",
-                       "ui", "-addr", ":1348", "-envs", "prod,preprod"],
+                       "ui", "-addr", ":1348", "-envs", "prod,preprod,demo"],
   "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}", "GOBANK_DEPLOY_SSH_KEY=${GOBANK_DEPLOY_SSH_KEY}"],
   "WaitForClock": true
 }

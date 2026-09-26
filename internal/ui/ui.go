@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,9 +25,11 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
-// Operator is what the page drives: status is read on every render, up and
-// down run as background jobs writing their progress to out.
+// Operator is what the page drives: the environment list and each status
+// are read on every render, up and down run as background jobs writing
+// their progress to out.
 type Operator interface {
+	Environments(ctx context.Context) ([]deploy.Environment, error)
 	Status(ctx context.Context, env deploy.Environment) (deploy.Status, error)
 	Up(ctx context.Context, o deploy.UpOptions, out io.Writer) error
 	Down(ctx context.Context, env deploy.Environment, out io.Writer) error
@@ -33,6 +38,10 @@ type Operator interface {
 // DeployerFactory adapts deploy.Deployer to Operator: each job gets a
 // Deployer whose Out is the job's log.
 type DeployerFactory func(out io.Writer) *deploy.Deployer
+
+func (f DeployerFactory) Environments(ctx context.Context) ([]deploy.Environment, error) {
+	return f(io.Discard).Environments(ctx)
+}
 
 func (f DeployerFactory) Status(ctx context.Context, env deploy.Environment) (deploy.Status, error) {
 	return f(io.Discard).Status(ctx, env)
@@ -100,7 +109,7 @@ type envView struct {
 // Server is the http.Handler for the page.
 type Server struct {
 	op      Operator
-	envs    []deploy.Environment
+	envs    []deploy.Environment // configured: always listed, provisioned or not
 	ctrl    *lofigui.Controller
 	mux     *http.ServeMux
 	Version string
@@ -115,7 +124,8 @@ type Server struct {
 	jobs map[string]*job // latest job per environment
 }
 
-// New builds the page for the given environments.
+// New builds the page. envs are always listed; environments that exist in
+// the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	ctrl, err := lofigui.NewControllerFromFS(templateFS, "templates", "index.html")
 	if err != nil {
@@ -123,6 +133,7 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	}
 	s := &Server{op: op, envs: envs, ctrl: ctrl, jobs: map[string]*job{}, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("POST /env", s.create)
 	s.mux.HandleFunc("POST /env/{env}/create", s.action("create"))
 	s.mux.HandleFunc("POST /env/{env}/redeploy", s.action("redeploy"))
 	s.mux.HandleFunc("POST /env/{env}/down", s.action("down"))
@@ -134,8 +145,38 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
-func (s *Server) environment(name string) (deploy.Environment, bool) {
-	for _, e := range s.envs {
+// environments lists the configured environments first, in their order,
+// then any others that exist in the cloud project or have a job here,
+// sorted. The error is the list read failing; the rest is still returned.
+func (s *Server) environments(ctx context.Context) ([]deploy.Environment, error) {
+	envs := slices.Clone(s.envs)
+	seen := map[string]bool{}
+	for _, e := range envs {
+		seen[e.Name] = true
+	}
+	var extra []deploy.Environment
+	add := func(e deploy.Environment) {
+		if !seen[e.Name] {
+			seen[e.Name] = true
+			extra = append(extra, e)
+		}
+	}
+	existing, err := s.op.Environments(ctx)
+	for _, e := range existing {
+		add(e)
+	}
+	s.mu.Lock()
+	for name := range s.jobs {
+		add(deploy.Environment{Name: name})
+	}
+	s.mu.Unlock()
+	slices.SortFunc(extra, func(a, b deploy.Environment) int { return strings.Compare(a.Name, b.Name) })
+	return append(envs, extra...), err
+}
+
+func (s *Server) environment(ctx context.Context, name string) (deploy.Environment, bool) {
+	envs, _ := s.environments(ctx)
+	for _, e := range envs {
 		if e.Name == name {
 			return e, true
 		}
@@ -146,7 +187,8 @@ func (s *Server) environment(name string) (deploy.Environment, bool) {
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshIdle
 	var views []envView
-	for _, e := range s.envs {
+	envs, listErr := s.environments(r.Context())
+	for _, e := range envs {
 		v := envView{Name: e.Name}
 		v.Status, v.Error = s.op.Status(r.Context(), e)
 		s.mu.Lock()
@@ -163,6 +205,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.ctrl.RenderTemplate(w, lofigui.TemplateContext{
 		"envs":          views,
+		"listError":     listErr,
 		"refresh":       refresh,
 		"version":       s.Version,
 		"upUnavailable": s.upUnavailable(),
@@ -177,6 +220,45 @@ func (s *Server) upUnavailable() string {
 }
 
 var errBusy = errors.New("a job is already running for this environment")
+
+// envName is what an environment may be called: a DNS label, since it
+// becomes the server's hostname.
+var envName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// create starts a new environment named on the form; it is listed from
+// then on because it has a job, and after that because it has a server.
+func (s *Server) create(w http.ResponseWriter, r *http.Request) {
+	if why := s.upUnavailable(); why != "" {
+		http.Error(w, "create not available here: "+why, http.StatusForbidden)
+		return
+	}
+	name := r.FormValue("name")
+	if !envName.MatchString(name) {
+		http.Error(w, fmt.Sprintf("environment name %q: use lower-case letters, digits and hyphens", name), http.StatusBadRequest)
+		return
+	}
+	if _, exists := s.environment(r.Context(), name); exists {
+		http.Error(w, name+": already an environment", http.StatusConflict)
+		return
+	}
+	s.startCreate(w, r, deploy.Environment{Name: name})
+}
+
+// startCreate runs up -create for env at the form's scale and redirects to the page.
+func (s *Server) startCreate(w http.ResponseWriter, r *http.Request, env deploy.Environment) {
+	scale := r.FormValue("scale")
+	if scale == "" {
+		scale = "small"
+	}
+	run := func(ctx context.Context, out io.Writer) error {
+		return s.op.Up(ctx, deploy.UpOptions{Env: env, Scale: scale, Create: true}, out)
+	}
+	if err := s.start(env, "create", run); err != nil {
+		http.Error(w, fmt.Sprintf("%s: %v", env.Name, err), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
 
 // start registers and runs a job for env unless one is already running.
 func (s *Server) start(env deploy.Environment, action string, run func(ctx context.Context, out io.Writer) error) error {
@@ -202,7 +284,7 @@ func (s *Server) start(env deploy.Environment, action string, run func(ctx conte
 
 func (s *Server) action(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		env, ok := s.environment(r.PathValue("env"))
+		env, ok := s.environment(r.Context(), r.PathValue("env"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -214,13 +296,8 @@ func (s *Server) action(name string) http.HandlerFunc {
 		var run func(ctx context.Context, out io.Writer) error
 		switch name {
 		case "create":
-			scale := r.FormValue("scale")
-			if scale == "" {
-				scale = "small"
-			}
-			run = func(ctx context.Context, out io.Writer) error {
-				return s.op.Up(ctx, deploy.UpOptions{Env: env, Scale: scale, Create: true}, out)
-			}
+			s.startCreate(w, r, env)
+			return
 		case "redeploy":
 			run = func(ctx context.Context, out io.Writer) error {
 				return s.op.Up(ctx, deploy.UpOptions{Env: env}, out)
@@ -243,7 +320,7 @@ func (s *Server) action(name string) http.HandlerFunc {
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
-	env, ok := s.environment(r.PathValue("env"))
+	env, ok := s.environment(r.Context(), r.PathValue("env"))
 	if !ok {
 		http.NotFound(w, r)
 		return

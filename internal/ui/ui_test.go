@@ -65,6 +65,12 @@ var envs = []deploy.Environment{{Name: "prod"}, {Name: "preprod"}}
 
 func newTestServer(t *testing.T) (*httptest.Server, *fakeOperator) {
 	t.Helper()
+	return newTestServerWith(t, func(*Server) {})
+}
+
+// newTestServerWith lets a test configure the Server before it serves.
+func newTestServerWith(t *testing.T, configure func(*Server)) (*httptest.Server, *fakeOperator) {
+	t.Helper()
 	op := newFakeOperator()
 	op.statuses["prod"] = deploy.Status{
 		Server:  &deploy.Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", Status: "running", Location: "fsn1"},
@@ -75,6 +81,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *fakeOperator) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configure(s)
 	ts := httptest.NewServer(s)
 	t.Cleanup(ts.Close)
 	client := ts.Client()
@@ -223,4 +230,36 @@ func TestUnknownEnvironmentIs404(t *testing.T) {
 	if code := post(t, ts, "/env/staging/redeploy", nil); code != http.StatusNotFound {
 		t.Errorf("status %d", code)
 	}
+}
+
+// A host that cannot build the demo (no Go toolchain, no gobank checkout —
+// a gokrazy appliance, say) still shows every environment and can turn one
+// off, but offers nothing that would need a release.
+func TestWithoutABuilderOnlyStatusAndDownAreOffered(t *testing.T) {
+	const reason = "no Go toolchain on this host"
+	ts, op := newTestServerWith(t, func(s *Server) { s.UpUnavailable = reason })
+	_, body := get(t, ts, "/")
+	for _, want := range []string{reason, "Serving", "Not provisioned", `action="/env/prod/down"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{`action="/env/prod/redeploy"`, `action="/env/preprod/create"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("page should not offer %q", unwanted)
+		}
+	}
+	if code := post(t, ts, "/env/preprod/create", url.Values{"scale": {"small"}}); code != http.StatusForbidden {
+		t.Errorf("create without a builder: status %d, want 403", code)
+	}
+	if code := post(t, ts, "/env/prod/redeploy", nil); code != http.StatusForbidden {
+		t.Errorf("redeploy without a builder: status %d, want 403", code)
+	}
+	if len(op.ups) != 0 {
+		t.Fatal("up must not run without a builder")
+	}
+	if code := post(t, ts, "/env/prod/down", url.Values{"confirm": {"on"}}); code != http.StatusSeeOther {
+		t.Errorf("down is still allowed: status %d", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.downs) == 1 })
 }

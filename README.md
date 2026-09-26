@@ -29,6 +29,21 @@ tp secrets task ui                       # http://localhost:1348/
 tp secrets task ui ENVS=prod,preprod,demo
 ```
 
+On a host that cannot build `cmd/demo` (no Go toolchain or no gobank
+checkout at `-src`), the page shows status and offers Down only; Create and
+Redeploy need a machine that can build. That is how it runs on hydrogen, the
+LAN gokrazy appliance, as a package of its `gok_local` instance config:
+
+```json
+"git.bytestone.uk/hum3/gobank-deploy/cmd/gobank-deploy": {
+  "CommandLineFlags": ["-build", "/perm/gobank-deploy", "ui", "-addr", ":1348", "-envs", "prod,preprod"],
+  "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}"],
+  "WaitForClock": true
+}
+```
+
+with Caddy proxying `gobank-deploy.lan.drummonds.net` to `:1348`.
+
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for
 arm64.

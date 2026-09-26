@@ -104,6 +104,10 @@ type Server struct {
 	ctrl    *lofigui.Controller
 	mux     *http.ServeMux
 	Version string
+	// UpUnavailable, when set, is why this host cannot run up (no Go
+	// toolchain or gobank checkout, say): the page then offers status and
+	// down only, and create / redeploy requests are refused.
+	UpUnavailable string
 
 	mu   sync.Mutex
 	jobs map[string]*job // latest job per environment
@@ -156,9 +160,10 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.ctrl.RenderTemplate(w, lofigui.TemplateContext{
-		"envs":    views,
-		"refresh": refresh,
-		"version": s.Version,
+		"envs":          views,
+		"refresh":       refresh,
+		"version":       s.Version,
+		"upUnavailable": s.UpUnavailable,
 	})
 }
 
@@ -191,6 +196,10 @@ func (s *Server) action(name string) http.HandlerFunc {
 		env, ok := s.environment(r.PathValue("env"))
 		if !ok {
 			http.NotFound(w, r)
+			return
+		}
+		if s.UpUnavailable != "" && name != "down" {
+			http.Error(w, fmt.Sprintf("%s: %s not available here: %s", env.Name, name, s.UpUnavailable), http.StatusForbidden)
 			return
 		}
 		var run func(ctx context.Context, out io.Writer) error

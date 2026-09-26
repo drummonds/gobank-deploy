@@ -40,6 +40,7 @@ func usage() {
   gobank-deploy down <env> [-y]
   gobank-deploy status <env>
   gobank-deploy ui [-addr :1348] [-envs prod,preprod]   web page: states and controls
+                                                       (status and down only where cmd/demo cannot be built)
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -99,6 +100,10 @@ func main() {
 			log.Fatal(err)
 		}
 		page.Version = "gobank-deploy " + version
+		if why := remote.CanBuild(*src); why != "" {
+			page.UpUnavailable = why
+			fmt.Println("status and down only:", why)
+		}
 		fmt.Printf("gobank environments UI on http://localhost%s/\n", *addr)
 		srv := &http.Server{Addr: *addr, Handler: page}
 		go func() { <-ctx.Done(); srv.Close() }()

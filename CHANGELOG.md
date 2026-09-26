@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `ui` on a host that cannot build `cmd/demo` (no Go toolchain, or no gobank
+  checkout at `-src`) shows status and offers Down only, says why, and
+  refuses create / redeploy requests with 403. This is the mode for the
+  hydrogen gokrazy appliance.
 - `up` writes `/etc/gobank/deploy.env` with `GOBANK_MEMORY_LIMIT` sized to
   half the box's RAM (the rest is PostgreSQL's), and makes the unit read it;
   works on boxes created before the unit had the `EnvironmentFile` line.

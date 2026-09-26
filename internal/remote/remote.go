@@ -277,6 +277,18 @@ func (h *host) Put(ctx context.Context, local, remote string) error {
 	return nil
 }
 
+// CanBuild reports why a Builder cannot work on this host, or "" when it
+// can: it needs the go tool on PATH and a gobank checkout at src.
+func CanBuild(src string) string {
+	if _, err := exec.LookPath("go"); err != nil {
+		return "no Go toolchain on this host"
+	}
+	if _, err := os.Stat(filepath.Join(src, "cmd", "demo")); err != nil {
+		return "no gobank checkout at " + src
+	}
+	return ""
+}
+
 // Builder cross-compiles cmd/demo from a gobank checkout with CGO disabled,
 // so local replace directives in that checkout still apply.
 type Builder struct {

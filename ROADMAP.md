@@ -16,6 +16,13 @@ inside the box first; expand/contract migrations through gobank-db.
 - [x] Story 1 — `up`, `down`, `status` for a named environment (port of
       the bash scripts, tested behind interfaces)
 - [x] Story 1a — `ui`: environment states and controls on a polling page
+- [x] Story 1b — `ui` as a status-and-down console on hydrogen (gokrazy):
+      no toolchain there, so nothing that needs a release is offered
+- [ ] Story 1c — `up` from a release: gobank publishes `demo` binaries
+      (linux/amd64, arm64) as Forgejo release assets, built where the
+      charts-fork replace applies; a Fetcher beside the Builder installs a
+      named version. Unblocks Create / Redeploy on hydrogen and is what
+      Story 4 promotes
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

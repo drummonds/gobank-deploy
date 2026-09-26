@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-26
+
+ - ui lists the project's gobank servers and adds environments by name; demo back in the default
+
 ### Added
 - `ui` lists every `gobank-*` server in the Hetzner project alongside the
   `-envs` names, and has a New environment form (name + scale) so the

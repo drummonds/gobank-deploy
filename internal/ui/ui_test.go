@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	wf "git.bytestone.uk/hum3/gobank-workflow"
+
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 )
 
@@ -25,12 +27,38 @@ type fakeOperator struct {
 	envsErr  error
 	ups      []deploy.UpOptions
 	downs    []deploy.Environment
+	demos    []demoCall
+	runs     []wf.RunRecord
 	release  chan struct{}
 	ctxErr   error
 }
 
 func newFakeOperator() *fakeOperator {
 	return &fakeOperator{statuses: map[string]deploy.Status{}, release: make(chan struct{})}
+}
+
+type demoCall struct {
+	Env   deploy.Environment
+	Scale string
+}
+
+func (f *fakeOperator) Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	f.mu.Lock()
+	f.demos = append(f.demos, demoCall{env, scale})
+	f.mu.Unlock()
+	fmt.Fprintf(out, "== create %s until %s\n", env.Name, env.Expires.Format(time.RFC3339))
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (f *fakeOperator) Runs(context.Context, int) ([]wf.RunRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.runs, nil
 }
 
 func (f *fakeOperator) Environments(context.Context) ([]deploy.Environment, error) {
@@ -42,7 +70,7 @@ func (f *fakeOperator) Environments(context.Context) ([]deploy.Environment, erro
 	var envs []deploy.Environment
 	for name, st := range f.statuses {
 		if st.Server != nil {
-			envs = append(envs, deploy.Environment{Name: name})
+			envs = append(envs, deploy.Environment{Name: name, Expires: st.Server.Expires()})
 		}
 	}
 	slices.SortFunc(envs, func(a, b deploy.Environment) int { return strings.Compare(a.Name, b.Name) })
@@ -319,6 +347,92 @@ func TestNewEnvironmentIsCreatedByNameAndListed(t *testing.T) {
 		t.Errorf("new environment should be a row with its job:\n%s", body)
 	}
 	close(op.release)
+}
+
+// --- Temporary environments: the demo workflow --------------------------------
+
+func TestNewEnvironmentWithARemovalTimeRunsTheDemoWorkflow(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, `name="remove"`) {
+		t.Fatalf("create forms should offer a removal time:\n%s", body)
+	}
+	before := time.Now()
+	if code := post(t, ts, "/env", url.Values{"name": {"demo"}, "scale": {"medium"}, "remove": {"4h"}}); code != http.StatusSeeOther {
+		t.Fatalf("status %d", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.demos) == 1 })
+	call := op.demos[0]
+	if call.Env.Name != "demo" || call.Scale != "medium" || len(op.ups) != 0 {
+		t.Errorf("demo call = %+v, ups = %v", call, op.ups)
+	}
+	if got := call.Env.Expires.Sub(before); got < 4*time.Hour-time.Second || got > 4*time.Hour+time.Minute {
+		t.Errorf("expires in %v, want 4h", got)
+	}
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, "Working: demo") || !strings.Contains(body, "== create demo until") {
+		t.Errorf("page should show the demo job running:\n%s", body)
+	}
+	close(op.release)
+}
+
+// A configured row's Create form can make it temporary too.
+func TestCreateWithARemovalTimeRunsTheDemoWorkflow(t *testing.T) {
+	ts, op := newTestServer(t)
+	post(t, ts, "/env/preprod/create", url.Values{"scale": {"small"}, "remove": {"1h"}})
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.demos) == 1 })
+	if op.demos[0].Env.Name != "preprod" || len(op.ups) != 0 {
+		t.Errorf("demos = %+v ups = %+v", op.demos, op.ups)
+	}
+	close(op.release)
+}
+
+func TestKeepIsAnOrdinaryCreate(t *testing.T) {
+	ts, op := newTestServer(t)
+	post(t, ts, "/env/preprod/create", url.Values{"scale": {"small"}, "remove": {"keep"}})
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.ups) == 1 })
+	if len(op.demos) != 0 || !op.ups[0].Expires.IsZero() {
+		t.Errorf("demos = %+v ups = %+v", op.demos, op.ups)
+	}
+	close(op.release)
+}
+
+// A temporary server found in the project with nothing looking after it
+// (the page restarted) gets its workflow resumed, and shows its expiry.
+func TestReconcileResumesTemporaryEnvironmentsWithoutAJob(t *testing.T) {
+	ts, op := newTestServer(t)
+	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	op.mu.Lock()
+	op.statuses["demo"] = deploy.Status{Server: &deploy.Server{Name: "gobank-demo", IP: "10.0.0.3", Labels: map[string]string{"expires": expires.Format(time.RFC3339)}}}
+	op.mu.Unlock()
+	srv := ts.Config.Handler.(*Server)
+	srv.Reconcile(context.Background())
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.demos) == 1 })
+	if !op.demos[0].Env.Expires.Equal(expires) {
+		t.Errorf("resumed with expiry %v, want %v", op.demos[0].Env.Expires, expires)
+	}
+	srv.Reconcile(context.Background()) // already looked after
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, "removed at "+expires.Local().Format("15:04")) {
+		t.Errorf("page should show when the demo goes:\n%s", body)
+	}
+	if len(op.demos) != 1 {
+		t.Errorf("a running job is not started again: %d", len(op.demos))
+	}
+	close(op.release)
+}
+
+func TestPageListsWorkflowRuns(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{WorkflowType: "demo", Key: "demo@2026-09-27T14:00:00Z", Status: wf.StatusFailed, Error: "create: out of stock", StartedAt: time.Now()}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/")
+	for _, want := range []string{"demo@2026-09-27T14:00:00Z", "failed", "create: out of stock"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
 }
 
 func TestNewEnvironmentNameMustBeAHostnameLabel(t *testing.T) {

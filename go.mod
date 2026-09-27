@@ -3,6 +3,7 @@ module git.bytestone.uk/hum3/gobank-deploy
 go 1.26.0
 
 require (
+	git.bytestone.uk/hum3/gobank-workflow v0.0.0-00010101000000-000000000000
 	git.bytestone.uk/hum3/lofigui v0.17.40
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
@@ -27,6 +28,7 @@ require (
 	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hack-pad/safejs v0.1.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nlepage/go-js-promise v1.1.0 // indirect
@@ -41,3 +43,5 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace git.bytestone.uk/hum3/gobank-workflow => ../gobank-workflow

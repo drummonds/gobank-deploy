@@ -42,7 +42,7 @@ func (h *Cloud) Servers(ctx context.Context) ([]*deploy.Server, error) {
 }
 
 func toServer(s *hcloud.Server) *deploy.Server {
-	out := &deploy.Server{Name: s.Name, Status: string(s.Status)}
+	out := &deploy.Server{Name: s.Name, Status: string(s.Status), Labels: s.Labels}
 	if s.ServerType != nil {
 		out.Type = s.ServerType.Name
 		out.MemoryGB = float64(s.ServerType.Memory)

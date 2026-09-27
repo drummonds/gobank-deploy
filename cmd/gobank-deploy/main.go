@@ -37,8 +37,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
+
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
@@ -142,10 +146,15 @@ func main() {
 				envs = append(envs, deploy.Environment{Name: n})
 			}
 		}
-		page, err := ui.New(ui.DeployerFactory(newDeployer), envs)
+		factory := ui.DeployerFactory(newDeployer)
+		// Run records live in memory for now; the server carries what
+		// must survive (its expiry), and Reconcile picks it up again.
+		demo := &flows.Demo{Ops: factory, Store: wf.NewMemStore()}
+		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo}, envs)
 		if err != nil {
 			log.Fatal(err)
 		}
+		go page.Run(ctx, time.Minute)
 		page.Version = "gobank-deploy " + version
 		page.UpUnavailable = upUnavailable
 		if why := upUnavailable(); why != "" {

@@ -36,6 +36,7 @@
               {{else if not .Server}}<span class="tag is-light">Not provisioned</span> <small>no billing</small>
               {{else if .Serving}}<span class="tag is-success">Serving</span>
               {{else}}<span class="tag is-danger">Not answering</span> <small>booting?</small>{{end}}
+              {{if .Removed}}<br><small class="has-text-grey">removed at {{.Removed}}</small>{{end}}
             </td>
             <td>
               {{if .Server}}{{if .Version}}{{.Version}}{{else}}<span class="has-text-grey">unknown</span>{{end}}
@@ -67,6 +68,12 @@
                       <option value="large">large (cx53)</option>
                       <option value="xl">xl (ccx33)</option>
                     </select></div></div>
+                    <div class="control"><div class="select is-small"><select name="remove">
+                      <option value="keep">keep</option>
+                      <option value="1h">remove after 1h</option>
+                      <option value="4h">remove after 4h</option>
+                      <option value="24h">remove after 24h</option>
+                    </select></div></div>
                     <div class="control"><button class="button is-small is-success">Create</button></div>
                   </div>
                   <small class="has-text-grey">starts billing</small>
@@ -90,9 +97,15 @@
             <option value="large">large (cx53)</option>
             <option value="xl">xl (ccx33)</option>
           </select></div></div>
+          <div class="control"><div class="select is-small"><select name="remove">
+            <option value="keep">keep</option>
+            <option value="1h">remove after 1h</option>
+            <option value="4h">remove after 4h</option>
+            <option value="24h">remove after 24h</option>
+          </select></div></div>
           <div class="control"><button class="button is-small is-success">Create</button></div>
         </div>
-        <small class="has-text-grey">starts billing; the environment is listed while it exists</small>
+        <small class="has-text-grey">starts billing; the environment is listed while it exists. "Remove after" runs the demo workflow: the server carries its removal time, so it goes even if this page restarts.</small>
       </form>
       {{end}}
 
@@ -103,6 +116,15 @@
         <pre>{{.Job.Log}}</pre>
       </div>
       {{end}}{{end}}
+      {{if .runs}}
+      <h2 class="title is-5">Workflow runs</h2>
+      <table class="table is-fullwidth is-narrow is-size-7">
+        <thead><tr><th>Workflow</th><th>Instance</th><th>State</th><th>Started</th><th>Error</th></tr></thead>
+        <tbody>
+        {{range .runs}}<tr><td>{{.Type}}</td><td>{{.Key}}</td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
+        </tbody>
+      </table>
+      {{end}}
       {{if .upUnavailable}}<p class="is-size-7 has-text-grey">Status and Down only: {{.upUnavailable}}.</p>{{end}}
       <p class="is-size-7 has-text-grey">Page refreshes every {{.refresh}}s. Servers bill until deleted.</p>
     </div>

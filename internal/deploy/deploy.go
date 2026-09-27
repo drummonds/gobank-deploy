@@ -22,6 +22,9 @@ var cloudInit string
 // environment is one server, one database and the release running on it.
 type Environment struct {
 	Name string
+	// Expires, when set, is when the environment is to be removed: a
+	// temporary one such as a demo. Carried on the server's labels.
+	Expires time.Time
 }
 
 // serverPrefix names every environment's server: gobank-<env>.
@@ -38,6 +41,19 @@ type Server struct {
 	Status   string
 	Location string
 	MemoryGB float64 // RAM of the server type; 0 when unknown
+	Labels   map[string]string
+}
+
+// expiresLabel holds a temporary server's removal time, RFC 3339 UTC.
+const expiresLabel = "expires"
+
+// Expires is when the server is to be removed, or zero for a standing one.
+func (s *Server) Expires() time.Time {
+	t, err := time.Parse(time.RFC3339, s.Labels[expiresLabel])
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // Release is a built binary and the version baked into it.
@@ -156,6 +172,8 @@ type UpOptions struct {
 	Env    Environment
 	Scale  string // small | medium | large | xl | any provider server type
 	Create bool
+	// Expires labels a created server as temporary, to be removed then.
+	Expires time.Time
 }
 
 // Status is what an environment looks like from outside.
@@ -386,12 +404,20 @@ func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
 		Firewall: name,
 		SSHKeys:  keys,
 		UserData: cloudInit,
-		Labels:   map[string]string{"project": "gobank", "environment": o.Env.Name},
+		Labels:   labels(o),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
 	}
 	return srv, nil
+}
+
+func labels(o UpOptions) map[string]string {
+	l := map[string]string{"project": "gobank", "environment": o.Env.Name}
+	if !o.Expires.IsZero() {
+		l[expiresLabel] = o.Expires.UTC().Format(time.RFC3339)
+	}
+	return l
 }
 
 func (d *Deployer) waitSSH(ctx context.Context, ip string, fresh bool) (Host, error) {
@@ -459,7 +485,8 @@ func (d *Deployer) Down(ctx context.Context, env Environment) error {
 }
 
 // Environments are the environments with a server in the cloud project,
-// sorted by name: anything named gobank-<env>, whoever created it.
+// sorted by name: anything named gobank-<env>, whoever created it, with
+// the expiry a temporary one carries.
 func (d *Deployer) Environments(ctx context.Context) ([]Environment, error) {
 	servers, err := d.Cloud.Servers(ctx)
 	if err != nil {
@@ -468,7 +495,7 @@ func (d *Deployer) Environments(ctx context.Context) ([]Environment, error) {
 	var envs []Environment
 	for _, s := range servers {
 		if name, ok := strings.CutPrefix(s.Name, serverPrefix); ok {
-			envs = append(envs, Environment{Name: name})
+			envs = append(envs, Environment{Name: name, Expires: s.Expires()})
 		}
 	}
 	slices.SortFunc(envs, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })

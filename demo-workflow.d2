@@ -1,0 +1,8 @@
+direction: right
+
+demo: "demo — one instance per environment@expiry" {
+  create: "create" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/demo.go"}
+  serve: "serve" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/demo.go"}
+  remove: "remove" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/demo.go"}
+  create -> serve -> remove
+}

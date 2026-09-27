@@ -35,7 +35,7 @@ func (c *fakeCloud) Server(_ context.Context, name string) (*Server, error) {
 
 func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, error) {
 	c.created = append(c.created, spec)
-	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4}
+	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4, Labels: spec.Labels}
 	c.servers[spec.Name] = s
 	return s, nil
 }
@@ -185,6 +185,45 @@ func (h *harness) withDNS() *fakeDNS {
 }
 
 var prod = Environment{Name: "prod"}
+
+// --- Expiry -------------------------------------------------------------------
+
+var noon = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+
+// A temporary environment carries its expiry on the server itself, so it
+// survives whatever process asked for it.
+func TestUpLabelsATemporaryServerWithItsExpiry(t *testing.T) {
+	h := newHarness()
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: Environment{Name: "demo"}, Scale: "small", Create: true, Expires: noon}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.cloud.created[0].Labels["expires"]; got != "2026-09-27T12:00:00Z" {
+		t.Errorf("expires label = %q", got)
+	}
+	if got := h.cloud.created[0].Labels["expires"]; got != "" && !h.cloud.servers["gobank-demo"].Expires().Equal(noon) {
+		t.Errorf("server expiry = %v", h.cloud.servers["gobank-demo"].Expires())
+	}
+	h2 := newHarness()
+	_, _ = h2.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true})
+	if _, has := h2.cloud.created[0].Labels["expires"]; has {
+		t.Error("a standing environment has no expiry")
+	}
+}
+
+func TestEnvironmentsCarryTheirExpiry(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod"}
+	h.cloud.servers["gobank-demo"] = &Server{Name: "gobank-demo", Labels: map[string]string{"expires": "2026-09-27T12:00:00Z"}}
+	h.cloud.servers["gobank-odd"] = &Server{Name: "gobank-odd", Labels: map[string]string{"expires": "junk"}}
+	envs, err := h.d.Environments(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Environment{{Name: "demo", Expires: noon}, {Name: "odd"}, {Name: "prod"}}
+	if !slices.Equal(envs, want) {
+		t.Errorf("environments = %v, want %v", envs, want)
+	}
+}
 
 // --- DNS ----------------------------------------------------------------------
 

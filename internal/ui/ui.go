@@ -17,9 +17,11 @@ import (
 	"sync"
 	"time"
 
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 )
 
 //go:embed templates
@@ -33,6 +35,24 @@ type Operator interface {
 	Status(ctx context.Context, env deploy.Environment) (deploy.Status, error)
 	Up(ctx context.Context, o deploy.UpOptions, out io.Writer) error
 	Down(ctx context.Context, env deploy.Environment, out io.Writer) error
+	// Demo runs the temporary-environment workflow for env until env.Expires.
+	Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
+	// Runs lists recent workflow runs, most recent first.
+	Runs(ctx context.Context, limit int) ([]wf.RunRecord, error)
+}
+
+// Ops is the production Operator: a Deployer per job, and the workflows.
+type Ops struct {
+	DeployerFactory
+	Flows *flows.Demo
+}
+
+func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	return o.Flows.Run(ctx, env, scale, out)
+}
+
+func (o Ops) Runs(ctx context.Context, limit int) ([]wf.RunRecord, error) {
+	return o.Flows.Store.ListRuns(ctx, limit)
 }
 
 // DeployerFactory adapts deploy.Deployer to Operator: each job gets a
@@ -102,8 +122,18 @@ func (j *job) view() *jobView {
 type envView struct {
 	Name string
 	deploy.Status
-	Error error
-	Job   *jobView
+	Error   error
+	Job     *jobView
+	Removed string // when a temporary environment goes, local time; "" for a standing one
+}
+
+// runView is a workflow run as the template sees it.
+type runView struct {
+	Type    string
+	Key     string
+	Status  string
+	Started string
+	Error   string
 }
 
 // Server is the http.Handler for the page.
@@ -190,6 +220,9 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	envs, listErr := s.environments(r.Context())
 	for _, e := range envs {
 		v := envView{Name: e.Name}
+		if !e.Expires.IsZero() {
+			v.Removed = e.Expires.Local().Format("15:04 Mon 2 Jan")
+		}
 		v.Status, v.Error = s.op.Status(r.Context(), e)
 		s.mu.Lock()
 		j := s.jobs[e.Name]
@@ -202,9 +235,16 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, v)
 	}
+	var runs []runView
+	if recs, err := s.op.Runs(r.Context(), 20); err == nil {
+		for _, rec := range recs {
+			runs = append(runs, runView{Type: string(rec.WorkflowType), Key: rec.Key, Status: string(rec.Status), Started: rec.StartedAt.Local().Format("15:04 Mon 2 Jan"), Error: rec.Error})
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.ctrl.RenderTemplate(w, lofigui.TemplateContext{
 		"envs":          views,
+		"runs":          runs,
 		"listError":     listErr,
 		"refresh":       refresh,
 		"version":       s.Version,
@@ -244,16 +284,40 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	s.startCreate(w, r, deploy.Environment{Name: name})
 }
 
-// startCreate runs up -create for env at the form's scale and redirects to the page.
+// removeAfter is the form's "remove" choice as a duration; zero is keep.
+func removeAfter(v string) (time.Duration, error) {
+	if v == "" || v == "keep" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("remove after %q: want a duration such as 4h", v)
+	}
+	return d, nil
+}
+
+// startCreate runs up -create for env at the form's scale, or the demo
+// workflow when the form asks for removal after a while, and redirects.
 func (s *Server) startCreate(w http.ResponseWriter, r *http.Request, env deploy.Environment) {
 	scale := r.FormValue("scale")
 	if scale == "" {
 		scale = "small"
 	}
+	ttl, err := removeAfter(r.FormValue("remove"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	action := "create"
 	run := func(ctx context.Context, out io.Writer) error {
 		return s.op.Up(ctx, deploy.UpOptions{Env: env, Scale: scale, Create: true}, out)
 	}
-	if err := s.start(env, "create", run); err != nil {
+	if ttl > 0 {
+		env.Expires = time.Now().Add(ttl).UTC().Truncate(time.Second)
+		action = "demo"
+		run = func(ctx context.Context, out io.Writer) error { return s.op.Demo(ctx, env, scale, out) }
+	}
+	if err := s.start(env, action, run); err != nil {
 		http.Error(w, fmt.Sprintf("%s: %v", env.Name, err), http.StatusConflict)
 		return
 	}
@@ -316,6 +380,37 @@ func (s *Server) action(name string) http.HandlerFunc {
 			return
 		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+}
+
+// Reconcile starts the demo workflow for every temporary environment in
+// the project that has no job looking after it: after a restart, or when
+// a job was cancelled. The workflow resumes from where the server is.
+func (s *Server) Reconcile(ctx context.Context) {
+	envs, err := s.op.Environments(ctx)
+	if err != nil {
+		return
+	}
+	for _, env := range envs {
+		if env.Expires.IsZero() {
+			continue
+		}
+		env := env
+		_ = s.start(env, "demo", func(ctx context.Context, out io.Writer) error { return s.op.Demo(ctx, env, "", out) })
+	}
+}
+
+// Run reconciles now and then every interval until ctx ends.
+func (s *Server) Run(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		s.Reconcile(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
 	}
 }
 

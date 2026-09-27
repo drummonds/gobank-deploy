@@ -66,6 +66,19 @@ from the gokrazy secrets note); its public half is registered in the
 Hetzner project so new servers accept it, and was added to servers that
 predate it by hand. Pinned host keys live in `/perm/gobank-deploy/known_hosts`.
 
+### Temporary environments: the demo workflow
+
+"Remove after" on either Create form runs the **demo** workflow instead of
+a plain create: `create` (up with the removal time as an `expires` label on
+the server), `serve` (until then, or until someone presses Down), `remove`
+(down). It is a [gobank-workflow](https://git.bytestone.uk/hum3/gobank-workflow)
+pipeline: one keyed instance (`<env>@<expiry>`) whose stages are recorded,
+so a failed stage is resumed by the next run and a finished one is final.
+The run records live in memory for now; what must survive is on the server
+itself, and every minute the page starts the workflow for any temporary
+server nobody is looking after, so a demo still goes after the page
+restarts. `demo-workflow.d2` (from `go run ./cmd/flowd2`) draws it.
+
 Each environment gets the hostname `<env>.gobank.drummonds.net`: an A
 record in Route 53 (TTL 60s, since Hetzner reuses addresses) set on `up`
 and removed on `down`. `-dns DOMAIN` changes the domain, `-dns ""` turns

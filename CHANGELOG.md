@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Demo workflow, the first on gobank-workflow's pipeline runner: "remove
+  after" on the Create forms makes a temporary environment that is created
+  with its expiry as a server label, served until then and removed. The
+  page reconciles every minute, resuming the workflow for any temporary
+  server without a job, so a restart does not leave one billing. Recent
+  workflow runs are listed on the page; `cmd/flowd2` prints the d2.
 - Versions: `status` and the page report the version each environment is
   running (from the demo's page footer) against what the next `up` would
   deploy (the store's latest, or the checkout's `git describe`), and flag

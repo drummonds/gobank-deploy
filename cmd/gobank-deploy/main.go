@@ -13,6 +13,10 @@
 // copied over (task push). Its ssh identity comes from GOBANK_DEPLOY_SSH_KEY
 // (base64 of a private key in PEM) since there is no agent or ~/.ssh.
 //
+// Each environment gets the hostname <env>.<-dns domain> in Route 53 (A
+// record, set on up, removed on down) when AWS credentials are present;
+// without them DNS is skipped and said so. -dns "" turns it off.
+//
 // Needs HCLOUD_TOKEN in the environment: run via `tp secrets gobank-deploy ...`.
 // Creating a server starts billing, so `up` on a missing server refuses
 // unless -create is given; `down` deletes the server, which is what stops
@@ -23,6 +27,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -36,6 +41,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/store"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/ui"
 )
@@ -59,8 +65,10 @@ Global flags (before the subcommand):
   -src DIR     gobank checkout to build cmd/demo from (default ../gobank)
   -build DIR   build directory for the binary and pinned host keys (default build)
   -store DIR   deploy from this release store instead of building (the appliance)
+  -dns DOMAIN  each environment is <env>.DOMAIN in Route 53 (default gobank.drummonds.net; "" for none)
 
 HCLOUD_TOKEN must be set: run via  tp secrets gobank-deploy ...
+AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for -dns; without them DNS is skipped.
 GOBANK_DEPLOY_SSH_KEY, if set, is base64 of a private key in PEM to ssh with.`)
 	os.Exit(2)
 }
@@ -70,6 +78,7 @@ func main() {
 	src := global.String("src", "../gobank", "gobank checkout to build from")
 	buildDir := global.String("build", "build", "build directory")
 	storeDir := global.String("store", "", "release store to deploy from instead of building")
+	domain := global.String("dns", "gobank.drummonds.net", "Route 53 domain for <env>.DOMAIN hostnames; empty for none")
 	global.Usage = usage
 	_ = global.Parse(os.Args[1:])
 	args := global.Args()
@@ -102,6 +111,7 @@ func main() {
 		os.Exit(1)
 	}
 	cloud := hetzner.New(token)
+	dns := dnsFor(context.Background(), *domain)
 	var builder deploy.Builder = &remote.Builder{Src: *src, Dir: *buildDir}
 	upUnavailable := func() string { return remote.CanBuild(*src) }
 	if *storeDir != "" {
@@ -111,6 +121,7 @@ func main() {
 	newDeployer := func(out io.Writer) *deploy.Deployer {
 		return &deploy.Deployer{
 			Cloud: cloud,
+			DNS:   dns, Domain: *domain,
 			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts"), Identity: identity},
 			Build: builder,
 			Probe: &remote.Prober{},
@@ -190,6 +201,25 @@ func main() {
 	}
 }
 
+// dnsFor is the Route 53 provider for domain, or nil (with a notice) when
+// there is no domain or no way to reach AWS. A missing hosted zone is a
+// configuration error and fatal.
+func dnsFor(ctx context.Context, domain string) deploy.DNS {
+	if domain == "" {
+		return nil
+	}
+	d, err := route53.New(ctx, domain)
+	if errors.Is(err, route53.ErrNoCredentials) {
+		fmt.Fprintf(os.Stderr, "dns off: %v\n", err)
+		return nil
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	return d
+}
+
 // identityFromEnv decodes GOBANK_DEPLOY_SSH_KEY (base64 of a PEM private
 // key), or returns nil when unset.
 func identityFromEnv() ([]byte, error) {
@@ -244,6 +274,9 @@ func printStatus(env deploy.Environment, st deploy.Status) {
 	}
 	s := st.Server
 	fmt.Printf("server %s: %s %s %s %s\n", s.Name, s.Type, s.Status, s.IP, s.Location)
+	if st.Host != "" {
+		fmt.Printf("dns:    %s\n", st.Host)
+	}
 	fmt.Printf("demo:   %s\n", st.URL)
 	if st.Serving {
 		fmt.Println("state:  serving")

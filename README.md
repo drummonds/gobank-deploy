@@ -44,7 +44,8 @@ LAN gokrazy appliance, as a package of its `gok_local` instance config:
 "git.bytestone.uk/hum3/gobank-deploy/cmd/gobank-deploy": {
   "CommandLineFlags": ["-build", "/perm/gobank-deploy", "-store", "/perm/gobank-deploy/releases",
                        "ui", "-addr", ":1348", "-envs", "prod,preprod,demo"],
-  "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}", "GOBANK_DEPLOY_SSH_KEY=${GOBANK_DEPLOY_SSH_KEY}"],
+  "Environment": ["HCLOUD_TOKEN=${HCLOUD_TOKEN}", "GOBANK_DEPLOY_SSH_KEY=${GOBANK_DEPLOY_SSH_KEY}",
+                  "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}", "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"],
   "WaitForClock": true
 }
 ```
@@ -64,6 +65,14 @@ identity is `GOBANK_DEPLOY_SSH_KEY` (base64 of the private key in PEM,
 from the gokrazy secrets note); its public half is registered in the
 Hetzner project so new servers accept it, and was added to servers that
 predate it by hand. Pinned host keys live in `/perm/gobank-deploy/known_hosts`.
+
+Each environment gets the hostname `<env>.gobank.drummonds.net`: an A
+record in Route 53 (TTL 60s, since Hetzner reuses addresses) set on `up`
+and removed on `down`. `-dns DOMAIN` changes the domain, `-dns ""` turns
+it off. It needs `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`tp secrets`
+on the laptop, the gokrazy `Environment` on the appliance, as gokcaddy);
+without them DNS is skipped and the start-up says so. The hosted zone is
+the one whose name is the domain's longest suffix, so `drummonds.net`.
 
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for

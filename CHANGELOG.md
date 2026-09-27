@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Route 53: each environment is `<env>.gobank.drummonds.net`, an A record
+  set on `up` (redeploy repairs it) and removed on `down`; `status` and the
+  page link by hostname. `-dns DOMAIN` / `-dns ""`; skipped with a notice
+  when there are no AWS credentials.
+
 ## [0.1.0] - 2026-09-26
 
  - ui lists the project's gobank servers and adds environments by name; demo back in the default

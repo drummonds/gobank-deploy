@@ -93,7 +93,8 @@ func newTestServerWith(t *testing.T, configure func(*Server)) (*httptest.Server,
 	op := newFakeOperator()
 	op.statuses["prod"] = deploy.Status{
 		Server:  &deploy.Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", Status: "running", Location: "fsn1"},
-		URL:     "http://10.0.0.9:1347/",
+		Host:    "prod.gobank.test",
+		URL:     "http://prod.gobank.test:1347/",
 		Serving: true,
 	}
 	s, err := New(op, envs)
@@ -147,7 +148,7 @@ func TestPageShowsEachEnvironmentState(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"prod", "preprod", "Serving", "Not provisioned", "cx33", "10.0.0.9", "http://10.0.0.9:1347/"} {
+	for _, want := range []string{"prod", "preprod", "Serving", "Not provisioned", "cx33", "10.0.0.9", "prod.gobank.test", `href="http://prod.gobank.test:1347/"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}

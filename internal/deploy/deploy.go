@@ -101,6 +101,14 @@ type Prober interface {
 	Serving(ctx context.Context, url string) bool
 }
 
+// DNS publishes hostnames: Route53 in production, a fake in tests.
+type DNS interface {
+	// Set points name at ip, replacing whatever it pointed at.
+	Set(ctx context.Context, name, ip string) error
+	// Delete removes name; a name that does not exist is not an error.
+	Delete(ctx context.Context, name string) error
+}
+
 var (
 	// ErrNeedsCreate: the server does not exist and creating one starts
 	// billing, so it needs an explicit request.
@@ -129,6 +137,11 @@ type Deployer struct {
 	Build Builder
 	Probe Prober
 
+	// DNS and Domain, when set, give each environment the hostname
+	// <env>.<Domain>, pointed at its server on up and removed on down.
+	DNS    DNS
+	Domain string
+
 	Image    string // defaults to ubuntu-24.04
 	Location string // defaults to fsn1
 	Out      io.Writer
@@ -145,7 +158,8 @@ type UpOptions struct {
 // Status is what an environment looks like from outside.
 type Status struct {
 	Server  *Server // nil: not provisioned, nothing billing
-	URL     string
+	Host    string  // the environment's hostname; empty without DNS
+	URL     string  // by hostname when there is one, else by address
 	Serving bool
 }
 
@@ -183,7 +197,36 @@ func firewallRules() []FirewallRule {
 	}
 }
 
-func serviceURL(ip string) string { return "http://" + ip + ":" + servicePort + "/" }
+func serviceURL(host string) string { return "http://" + host + ":" + servicePort + "/" }
+
+// hostname is the environment's DNS name, or empty without DNS.
+func (d *Deployer) hostname(env Environment) string {
+	if d.DNS == nil || d.Domain == "" {
+		return ""
+	}
+	return env.Name + "." + d.Domain
+}
+
+// publish points the environment's hostname at the server, if there is DNS.
+func (d *Deployer) publish(ctx context.Context, env Environment, srv *Server) error {
+	host := d.hostname(env)
+	if host == "" {
+		return nil
+	}
+	d.printf("== dns %s -> %s\n", host, srv.IP)
+	if err := d.DNS.Set(ctx, host, srv.IP); err != nil {
+		return fmt.Errorf("dns %s: %w", host, err)
+	}
+	return nil
+}
+
+// publicURL is where people reach the environment: by hostname when it has one.
+func (d *Deployer) publicURL(env Environment, srv *Server) string {
+	if host := d.hostname(env); host != "" {
+		return serviceURL(host)
+	}
+	return serviceURL(srv.IP)
+}
 
 func (d *Deployer) printf(format string, args ...any) {
 	if d.Out != nil {
@@ -220,6 +263,9 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	} else {
 		d.printf("== server %s already exists (%s) — redeploying binary only\n", name, srv.Type)
 	}
+	if err := d.publish(ctx, o.Env, srv); err != nil {
+		return nil, err
+	}
 
 	goarch := goarchFor(srv.Type)
 	d.printf("== build demo binary (linux/%s)\n", goarch)
@@ -253,7 +299,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if !d.waitServing(ctx, url) {
 		return nil, fmt.Errorf("%s: %w (check: journalctl -u %s on the box)", url, ErrNotServing, serviceName)
 	}
-	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, url)
+	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, d.publicURL(o.Env, srv))
 	return srv, nil
 }
 
@@ -392,6 +438,12 @@ func (d *Deployer) Down(ctx context.Context, env Environment) error {
 			return fmt.Errorf("delete firewall: %w", err)
 		}
 	}
+	if host := d.hostname(env); host != "" {
+		d.printf("== dns remove %s\n", host)
+		if err := d.DNS.Delete(ctx, host); err != nil {
+			return fmt.Errorf("dns %s: %w", host, err)
+		}
+	}
 	d.printf("done — nothing left billing\n")
 	return nil
 }
@@ -422,6 +474,7 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	if srv == nil {
 		return Status{}, nil
 	}
-	url := serviceURL(srv.IP)
-	return Status{Server: srv, URL: url, Serving: d.Probe.Serving(ctx, url)}, nil
+	// Probe by address: it works before the hostname has propagated.
+	serving := d.Probe.Serving(ctx, serviceURL(srv.IP))
+	return Status{Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv), Serving: serving}, nil
 }

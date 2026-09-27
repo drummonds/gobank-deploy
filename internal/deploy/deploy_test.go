@@ -71,6 +71,23 @@ func (c *fakeCloud) Servers(context.Context) ([]*Server, error) {
 	return out, nil
 }
 
+// fakeDNS records name → ip.
+type fakeDNS struct {
+	records map[string]string
+	deleted []string
+}
+
+func (d *fakeDNS) Set(_ context.Context, name, ip string) error {
+	d.records[name] = ip
+	return nil
+}
+
+func (d *fakeDNS) Delete(_ context.Context, name string) error {
+	d.deleted = append(d.deleted, name)
+	delete(d.records, name)
+	return nil
+}
+
 type fakeHost struct {
 	runs []string
 	puts []string
@@ -153,7 +170,89 @@ func newHarness() *harness {
 	return h
 }
 
+// withDNS gives the harness a DNS provider for the gobank.test domain.
+func (h *harness) withDNS() *fakeDNS {
+	dns := &fakeDNS{records: map[string]string{}}
+	h.d.DNS, h.d.Domain = dns, "gobank.test"
+	return dns
+}
+
 var prod = Environment{Name: "prod"}
+
+// --- DNS ----------------------------------------------------------------------
+
+func TestUpPointsTheEnvironmentsHostnameAtTheServer(t *testing.T) {
+	h := newHarness()
+	dns := h.withDNS()
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := dns.records["prod.gobank.test"]; got != "10.0.0.7" {
+		t.Errorf("prod.gobank.test = %q, want the server's address", got)
+	}
+	if !strings.Contains(h.out.String(), "http://prod.gobank.test:1347/") {
+		t.Errorf("output should give the hostname URL:\n%s", h.out.String())
+	}
+}
+
+// A redeploy repairs the record: the server's address is the truth.
+func TestRedeployResetsTheHostname(t *testing.T) {
+	h := newHarness()
+	dns := h.withDNS()
+	dns.records["prod.gobank.test"] = "10.9.9.9"
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23"}
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod}); err != nil {
+		t.Fatal(err)
+	}
+	if got := dns.records["prod.gobank.test"]; got != "10.0.0.7" {
+		t.Errorf("prod.gobank.test = %q", got)
+	}
+}
+
+func TestDownRemovesTheHostname(t *testing.T) {
+	h := newHarness()
+	dns := h.withDNS()
+	dns.records["prod.gobank.test"] = "10.0.0.7"
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
+	if err := h.d.Down(context.Background(), prod); err != nil {
+		t.Fatal(err)
+	}
+	if _, still := dns.records["prod.gobank.test"]; still {
+		t.Error("record should be gone")
+	}
+	// Idempotent: a second down asks the provider again, which tolerates absence.
+	if err := h.d.Down(context.Background(), prod); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStatusGivesTheHostnameWhenThereIsDNS(t *testing.T) {
+	h := newHarness()
+	h.withDNS()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
+	st, err := h.d.Status(context.Background(), prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Host != "prod.gobank.test" || st.URL != "http://prod.gobank.test:1347/" {
+		t.Errorf("status = %+v", st)
+	}
+	if h.probe.url != "http://10.0.0.7:1347/" {
+		t.Errorf("probed %q: the address is what is known to work before DNS propagates", h.probe.url)
+	}
+}
+
+func TestWithoutDNSStatusIsByAddress(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
+	st, err := h.d.Status(context.Background(), prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Host != "" || st.URL != "http://10.0.0.7:1347/" {
+		t.Errorf("status = %+v", st)
+	}
+}
 
 // --- ServerType --------------------------------------------------------------
 

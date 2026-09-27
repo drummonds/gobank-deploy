@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Versions: `status` and the page report the version each environment is
+  running (from the demo's page footer) against what the next `up` would
+  deploy (the store's latest, or the checkout's `git describe`), and flag
+  an environment that is behind.
 - Route 53: each environment is `<env>.gobank.drummonds.net`, an A record
   set on `up` (redeploy repairs it) and removed on `down`; `status` and the
   page link by hostname. `-dns DOMAIN` / `-dns ""`; skipped with a notice

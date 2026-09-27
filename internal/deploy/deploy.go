@@ -94,11 +94,14 @@ type Dialer interface {
 // Builder cross-compiles the release for the server's architecture.
 type Builder interface {
 	Build(ctx context.Context, goarch string) (Release, error)
+	// Available is the version Build would produce, or "" when unknown.
+	Available() string
 }
 
-// Prober reports whether the service answers at url.
+// Prober reports whether the service answers at url, and which version
+// it says it is ("" when it does not say).
 type Prober interface {
-	Serving(ctx context.Context, url string) bool
+	Probe(ctx context.Context, url string) (version string, serving bool)
 }
 
 // DNS publishes hostnames: Route53 in production, a fake in tests.
@@ -157,10 +160,17 @@ type UpOptions struct {
 
 // Status is what an environment looks like from outside.
 type Status struct {
-	Server  *Server // nil: not provisioned, nothing billing
-	Host    string  // the environment's hostname; empty without DNS
-	URL     string  // by hostname when there is one, else by address
-	Serving bool
+	Server    *Server // nil: not provisioned, nothing billing
+	Host      string  // the environment's hostname; empty without DNS
+	URL       string  // by hostname when there is one, else by address
+	Serving   bool
+	Version   string // what the service says it is running; "" when unknown
+	Available string // what the next up would deploy; "" when unknown
+}
+
+// Behind: the next up would deploy a different release from the one running.
+func (s Status) Behind() bool {
+	return s.Available != "" && s.Version != s.Available
 }
 
 // ServerType maps a scale preset to a provider server type and the Go
@@ -402,7 +412,7 @@ func (d *Deployer) waitSSH(ctx context.Context, ip string, fresh bool) (Host, er
 
 func (d *Deployer) waitServing(ctx context.Context, url string) bool {
 	for range probeAttempts {
-		if d.Probe.Serving(ctx, url) {
+		if _, serving := d.Probe.Probe(ctx, url); serving {
 			return true
 		}
 		if ctx.Err() != nil {
@@ -475,6 +485,9 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 		return Status{}, nil
 	}
 	// Probe by address: it works before the hostname has propagated.
-	serving := d.Probe.Serving(ctx, serviceURL(srv.IP))
-	return Status{Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv), Serving: serving}, nil
+	version, serving := d.Probe.Probe(ctx, serviceURL(srv.IP))
+	return Status{
+		Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv),
+		Serving: serving, Version: version, Available: d.Build.Available(),
+	}, nil
 }

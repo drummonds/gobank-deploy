@@ -280,6 +280,14 @@ func printStatus(env deploy.Environment, st deploy.Status) {
 	fmt.Printf("demo:   %s\n", st.URL)
 	if st.Serving {
 		fmt.Println("state:  serving")
+		switch {
+		case st.Version == "" && st.Available == "":
+			fmt.Println("version: unknown")
+		case st.Behind():
+			fmt.Printf("version: %s — %s available: tp secrets gobank-deploy up %s\n", st.Version, st.Available, env.Name)
+		default:
+			fmt.Printf("version: %s (current)\n", st.Version)
+		}
 	} else {
 		fmt.Println("state:  NOT answering (booting? ssh in and check: journalctl -u gobank-demo)")
 	}

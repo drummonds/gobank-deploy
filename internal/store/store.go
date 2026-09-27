@@ -39,6 +39,9 @@ func (s *Store) Latest() string {
 	return strings.TrimSpace(string(b))
 }
 
+// Available implements deploy.Builder: the latest release is what Build deploys.
+func (s *Store) Available() string { return s.Latest() }
+
 // Unavailable is why up cannot run from this store, or "" when it can.
 func (s *Store) Unavailable() string {
 	if s.Latest() == "" {

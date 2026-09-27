@@ -11,11 +11,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -306,10 +308,20 @@ type Builder struct {
 	Dir string // where the binary is written
 }
 
+// Available is the version a build would carry: the checkout's git
+// describe, or "" when there is no checkout to describe.
+func (b *Builder) Available() string {
+	out, err := exec.Command("git", "-C", b.Src, "describe", "--tags", "--always").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func (b *Builder) Build(ctx context.Context, goarch string) (deploy.Release, error) {
-	version := "dev"
-	if out, err := exec.CommandContext(ctx, "git", "-C", b.Src, "describe", "--tags", "--always").Output(); err == nil {
-		version = strings.TrimSpace(string(out))
+	version := b.Available()
+	if version == "" {
+		version = "dev"
 	}
 	if err := os.MkdirAll(b.Dir, 0o755); err != nil {
 		return deploy.Release{}, err
@@ -328,12 +340,17 @@ func (b *Builder) Build(ctx context.Context, goarch string) (deploy.Release, err
 	return deploy.Release{Version: version, Binary: bin}, nil
 }
 
-// Prober answers true when url returns a 2xx within Timeout.
+// Prober fetches the demo's front page: serving when it answers 2xx within
+// Timeout, and the version from the "Model Bank vX.Y.Z" footer every page
+// carries.
 type Prober struct {
 	Timeout time.Duration // defaults to 5s
 }
 
-func (p *Prober) Serving(ctx context.Context, url string) bool {
+// footerVersion matches the version in the page footer, "Model Bank v0.3.47".
+var footerVersion = regexp.MustCompile(`Model Bank\s+(v[0-9][^\s<]*)`)
+
+func (p *Prober) Probe(ctx context.Context, url string) (string, bool) {
 	timeout := p.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
@@ -342,12 +359,19 @@ func (p *Prober) Serving(ctx context.Context, url string) bool {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return false
+		return "", false
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return "", false
 	}
-	resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if m := footerVersion.FindSubmatch(body); m != nil {
+		return string(m[1]), true
+	}
+	return "", true
 }

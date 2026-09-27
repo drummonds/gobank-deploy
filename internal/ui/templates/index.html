@@ -22,7 +22,7 @@
     <div class="container">
       <table class="table is-fullwidth is-striped">
         <thead>
-          <tr><th>Environment</th><th>State</th><th>Server</th><th>Address</th><th>Controls</th></tr>
+          <tr><th>Environment</th><th>State</th><th>Version</th><th>Server</th><th>Address</th><th>Controls</th></tr>
         </thead>
         <tbody>
         {{range .envs}}
@@ -36,6 +36,12 @@
               {{else if not .Server}}<span class="tag is-light">Not provisioned</span> <small>no billing</small>
               {{else if .Serving}}<span class="tag is-success">Serving</span>
               {{else}}<span class="tag is-danger">Not answering</span> <small>booting?</small>{{end}}
+            </td>
+            <td>
+              {{if .Server}}{{if .Version}}{{.Version}}{{else}}<span class="has-text-grey">unknown</span>{{end}}
+                {{if .Behind}}<br><span class="tag is-warning">{{.Available}} available</span>
+                {{else if .Available}}<br><span class="tag is-light">current</span>{{end}}
+              {{else if .Available}}<span class="has-text-grey">{{.Available}} available</span>{{end}}
             </td>
             <td>{{if .Server}}{{.Server.Type}} {{.Server.Status}} {{.Server.Location}}{{end}}</td>
             <td>{{if .Server}}<a href="{{.URL}}">{{.URL}}</a><br><small>{{if .Host}}{{.Host}} → {{end}}{{.Server.IP}}</small>{{end}}</td>

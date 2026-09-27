@@ -120,9 +120,12 @@ func (d *fakeDialer) Dial(_ context.Context, _ string, fresh bool) (Host, error)
 }
 
 type fakeBuilder struct {
-	goarch string
-	builds int
+	goarch    string
+	builds    int
+	available string
 }
+
+func (b *fakeBuilder) Available() string { return b.available }
 
 func (b *fakeBuilder) Build(_ context.Context, goarch string) (Release, error) {
 	b.builds++
@@ -134,12 +137,16 @@ type fakeProber struct {
 	failFirst int
 	probes    int
 	url       string
+	version   string
 }
 
-func (p *fakeProber) Serving(_ context.Context, url string) bool {
+func (p *fakeProber) Probe(_ context.Context, url string) (string, bool) {
 	p.probes++
 	p.url = url
-	return p.probes > p.failFirst
+	if p.probes > p.failFirst {
+		return p.version, true
+	}
+	return "", false
 }
 
 type harness struct {
@@ -453,6 +460,31 @@ func TestDownIsIdempotent(t *testing.T) {
 }
 
 // --- Status -------------------------------------------------------------------
+
+// Status compares what is running with what the next up would deploy.
+func TestStatusReportsRunningAndAvailableVersions(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
+	h.probe.version = "v0.3.46"
+	h.build.available = "v0.3.47"
+	st, err := h.d.Status(context.Background(), prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Version != "v0.3.46" || st.Available != "v0.3.47" || !st.Behind() {
+		t.Errorf("status = %+v", st)
+	}
+	h.probe.version = "v0.3.47"
+	st, _ = h.d.Status(context.Background(), prod)
+	if st.Behind() {
+		t.Errorf("same version is not behind: %+v", st)
+	}
+	h.build.available = ""
+	st, _ = h.d.Status(context.Background(), prod)
+	if st.Behind() {
+		t.Errorf("nothing known to be available is not behind: %+v", st)
+	}
+}
 
 func TestStatusNotProvisioned(t *testing.T) {
 	h := newHarness()

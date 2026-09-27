@@ -27,6 +27,19 @@ func TestEmptyStoreHasNoRelease(t *testing.T) {
 	}
 }
 
+func TestAvailableIsTheLatestPut(t *testing.T) {
+	s := &Store{Dir: filepath.Join(t.TempDir(), "releases")}
+	if s.Available() != "" {
+		t.Fatal("empty store has nothing available")
+	}
+	if err := s.Put("v0.3.47", "amd64", binary(t, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Available(); got != "v0.3.47" {
+		t.Errorf("available = %q", got)
+	}
+}
+
 func TestPutThenBuildReturnsTheRelease(t *testing.T) {
 	s := &Store{Dir: filepath.Join(t.TempDir(), "releases")}
 	if err := s.Put("v1.2.3", "amd64", binary(t, "amd64 bits")); err != nil {

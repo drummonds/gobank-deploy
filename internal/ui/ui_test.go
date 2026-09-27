@@ -92,10 +92,12 @@ func newTestServerWith(t *testing.T, configure func(*Server)) (*httptest.Server,
 	t.Helper()
 	op := newFakeOperator()
 	op.statuses["prod"] = deploy.Status{
-		Server:  &deploy.Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", Status: "running", Location: "fsn1"},
-		Host:    "prod.gobank.test",
-		URL:     "http://prod.gobank.test:1347/",
-		Serving: true,
+		Server:    &deploy.Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", Status: "running", Location: "fsn1"},
+		Host:      "prod.gobank.test",
+		URL:       "http://prod.gobank.test:1347/",
+		Serving:   true,
+		Version:   "v0.3.46",
+		Available: "v0.3.47",
 	}
 	s, err := New(op, envs)
 	if err != nil {
@@ -152,6 +154,25 @@ func TestPageShowsEachEnvironmentState(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
+	}
+}
+
+func TestPageComparesRunningAndAvailableVersions(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/")
+	for _, want := range []string{"v0.3.46", "v0.3.47 available"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	op.mu.Lock()
+	st := op.statuses["prod"]
+	st.Version = "v0.3.47"
+	op.statuses["prod"] = st
+	op.mu.Unlock()
+	_, body = get(t, ts, "/")
+	if strings.Contains(body, "available") || !strings.Contains(body, "current") {
+		t.Errorf("an up-to-date environment is current:\n%s", body)
 	}
 }
 

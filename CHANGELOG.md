@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-27
+
+ - Route 53 hostnames, version comparison, demo workflow with automatic removal
+
 ### Added
 - Demo workflow, the first on gobank-workflow's pipeline runner: "remove
   after" on the Create forms makes a temporary environment that is created

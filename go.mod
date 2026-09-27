@@ -3,7 +3,7 @@ module git.bytestone.uk/hum3/gobank-deploy
 go 1.26.0
 
 require (
-	git.bytestone.uk/hum3/gobank-workflow v0.0.0-00010101000000-000000000000
+	git.bytestone.uk/hum3/gobank-workflow v0.1.3
 	git.bytestone.uk/hum3/lofigui v0.17.40
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
@@ -43,5 +43,3 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace git.bytestone.uk/hum3/gobank-workflow => ../gobank-workflow

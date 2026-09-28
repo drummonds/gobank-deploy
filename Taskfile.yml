@@ -88,11 +88,18 @@ tasks:
       - task-plus md2html --file ROADMAP.md --dst docs
 
   docs:d2:
-    desc: Render the d2 diagrams to SVG in docs/ and into the ui's embedded assets (demo-workflow.d2 comes from cmd/flowd2)
+    desc: Render every root d2 file to SVG in docs/ and into the ui's embedded assets; a diagram wider than MAX_WIDTH px shrinks its text below reading size on the page, so split it (one view, one question) or turn it
+    vars:
+      MAX_WIDTH: 1500
     cmds:
       - go run ./cmd/flowd2 > demo-workflow.d2
-      - for f in components deploy-sequence demo-workflow; do d2 $f.d2 docs/$f.svg; done
-      - mkdir -p internal/ui/assets && cp docs/components.svg docs/deploy-sequence.svg docs/demo-workflow.svg internal/ui/assets/
+      - |
+        for f in *.d2; do
+          d2 "$f" "docs/${f%.d2}.svg"
+          w=$(grep -o 'width="[0-9]*"' "docs/${f%.d2}.svg" | head -1 | tr -dc 0-9)
+          if [ "$w" -gt {{.MAX_WIDTH}} ]; then echo "$f renders ${w}px wide, over {{.MAX_WIDTH}}: split it or set direction: down" >&2; exit 1; fi
+        done
+      - mkdir -p internal/ui/assets && cp docs/*.svg internal/ui/assets/
       - chmod 644 docs/*.svg internal/ui/assets/*.svg
 
   docs:build:

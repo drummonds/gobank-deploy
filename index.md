@@ -14,11 +14,17 @@ act; deleting it is what stops billing.
 - Source: <https://git.bytestone.uk/hum3/gobank-deploy> · mirror
   <https://github.com/drummonds/gobank-deploy>
 
-## Components
+## How a version reaches an environment
 
-Where each part lives. The code comes from the Forgejo; the laptop builds
-the demo from its gobank checkout and pushes releases to the appliance,
-which cannot build; both drive the same Hetzner project and Route 53 zone
+The code comes from the Forgejo; the laptop builds the demo from its
+gobank checkout and pushes releases to the appliance, which cannot build;
+either deploys to a server.
+
+![Release path](release-path.svg)
+
+## What the orchestrator talks to
+
+From either place it runs: the same Hetzner project and Route 53 zone,
 with secrets from Bitwarden.
 
 ![Components](components.svg)

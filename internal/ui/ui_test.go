@@ -361,7 +361,7 @@ func TestAboutPageDescribesTheStructureWithDiagrams(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("about: status %d", code)
 	}
-	for _, want := range []string{"Forgejo", "Hetzner", "Route 53", "hydrogen", `src="/assets/components.svg"`, `src="/assets/deploy-sequence.svg"`, `src="/assets/demo-workflow.svg"`, `href="/"`} {
+	for _, want := range []string{"Forgejo", "Hetzner", "Route 53", "hydrogen", `src="/assets/components.svg"`, `src="/assets/release-path.svg"`, `src="/assets/deploy-sequence.svg"`, `src="/assets/demo-workflow.svg"`, `href="/"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("about missing %q", want)
 		}

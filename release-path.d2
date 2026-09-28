@@ -1,0 +1,41 @@
+# One question: how does a gobank version reach an environment? Code on
+# the Forgejo, built on the laptop, pushed to the appliance's store,
+# deployed by either. What each part talks to at run time is components.d2.
+
+direction: down
+
+classes: {
+  place: {style.border-radius: 8; style.font-size: 15}
+  part: {shape: rectangle; style.border-radius: 6}
+}
+
+forgejo: "Forgejo — git.bytestone.uk" {
+  class: place
+  gobank: "gobank\ncmd/demo: the Model Bank" {class: part}
+  deploy: "gobank-deploy\nthis orchestrator" {class: part}
+}
+
+laptop: "Laptop" {
+  class: place
+  checkout: "gobank checkout ../gobank" {class: part}
+  cli: "gobank-deploy up · build" {class: part}
+  store: "build/releases" {class: part}
+}
+
+hydrogen: "hydrogen — gokrazy appliance" {
+  class: place
+  ui: "gobank-deploy ui  (-store)" {class: part}
+  perm: "/perm/gobank-deploy/releases" {class: part}
+}
+
+server: "gobank-<env> on Hetzner\n/opt/gobank/demo" {class: part}
+
+forgejo.gobank -> laptop.checkout: git pull
+forgejo.deploy -> laptop.cli: go install
+forgejo.deploy -> hydrogen.ui: gok update
+laptop.checkout -> laptop.cli: go build cmd/demo\n(CGO off, amd64 + arm64)
+laptop.cli -> laptop.store: build
+laptop.store -> hydrogen.perm: task push
+hydrogen.perm -> hydrogen.ui: latest
+laptop.cli -> server: up: scp + restart
+hydrogen.ui -> server: Redeploy: scp + restart

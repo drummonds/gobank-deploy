@@ -25,11 +25,14 @@
         running PostgreSQL and the Model Bank demo. gobank-deploy creates it, puts a release on it,
         reports on it and deletes it. Creating a server is an explicit act; deleting it is what stops billing.</p>
 
-      <h2 class="title is-5">Components</h2>
+      <h2 class="title is-5">How a version reaches an environment</h2>
       <p>The code lives on the Forgejo at git.bytestone.uk. The laptop builds the demo from its gobank checkout
-        and pushes releases to hydrogen, the gokrazy appliance serving this page, which cannot build. Both drive
-        the same Hetzner project and the Route 53 zone, with secrets from Bitwarden.</p>
-      <figure><img src="/assets/components.svg" alt="Components: Forgejo, laptop, hydrogen, Hetzner Cloud, Route 53, Bitwarden"></figure>
+        and pushes releases to hydrogen, the gokrazy appliance, which cannot build; either deploys to a server.</p>
+      <figure><img src="/assets/release-path.svg" alt="Release path: Forgejo, laptop build, task push to hydrogen's store, deploy to the server"></figure>
+
+      <h2 class="title is-5">What the orchestrator talks to</h2>
+      <p>From either place it runs: the same Hetzner project and the Route 53 zone, with secrets from Bitwarden.</p>
+      <figure><img src="/assets/components.svg" alt="Components: laptop and hydrogen driving Hetzner Cloud and Route 53 with secrets from Bitwarden"></figure>
 
       <h2 class="title is-5">What <code>up</code> does</h2>
       <p>The same sequence for Create and Redeploy; only the create box starts billing. The release is built from

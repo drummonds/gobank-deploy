@@ -1,58 +1,35 @@
-# Structure: what the parts are and where each one lives. One view, one
-# question; how a deploy runs is deploy-sequence.d2, the demo's life is
-# demo-workflow.d2.
+# One question: what does the orchestrator talk to at run time, from
+# either place it runs? How a version gets here is release-path.d2; what
+# an up does in order is deploy-sequence.d2.
 
-direction: right
+direction: down
 
 classes: {
   place: {style.border-radius: 8; style.font-size: 15}
   part: {shape: rectangle; style.border-radius: 6}
 }
 
-forgejo: "Forgejo — git.bytestone.uk" {
+operators: "gobank-deploy runs in two places" {
   class: place
-  gobank: "gobank\ncmd/demo: the Model Bank" {class: part}
-  deploy: "gobank-deploy\nthis orchestrator" {class: part}
-  workflow: "gobank-workflow\npipeline runner" {class: part}
+  laptop: "Laptop\nCLI and page; builds from the checkout" {class: part}
+  hydrogen: "hydrogen (gokrazy, LAN)\npage behind gokcaddy; deploys from its store" {class: part}
 }
 
-bitwarden: "Bitwarden\nHCLOUD_TOKEN, ssh key, AWS keys" {class: part}
-
-laptop: "Laptop" {
-  class: place
-  checkout: "gobank checkout\n../gobank" {class: part}
-  cli: "gobank-deploy\nup · down · status · ui · build" {class: part}
-  store: "build/releases\nrelease store" {class: part}
-}
-
-hydrogen: "hydrogen — gokrazy appliance on the LAN" {
-  class: place
-  caddy: "gokcaddy\ngobank-deploy.lan.drummonds.net" {class: part}
-  ui: "gobank-deploy ui :1348\nstatus · down · deploy from the store" {class: part}
-  perm: "/perm/gobank-deploy\nreleases · known_hosts" {class: part}
-}
+bitwarden: "Bitwarden\nHCLOUD_TOKEN · ssh key · AWS keys" {class: part}
 
 hetzner: "Hetzner Cloud project" {
   class: place
-  server: "gobank-<env>  (prod, preprod, demo …)\nUbuntu · PostgreSQL · demo :1347\nfirewall 22 · 1347 · icmp\nlabels: environment, expires" {class: part}
+  server: "gobank-<env>: Ubuntu, PostgreSQL, demo :1347\nfirewall 22 · 1347 · icmp\nlabels environment, expires" {class: part}
 }
 
-route53: "AWS Route 53 — drummonds.net zone" {
+route53: "AWS Route 53 — drummonds.net" {
   class: place
-  record: "<env>.gobank.drummonds.net → server IP\nA record, TTL 60" {class: part}
+  record: "<env>.gobank.drummonds.net → server IP\nA, TTL 60" {class: part}
 }
 
-forgejo.gobank -> laptop.checkout: git
-forgejo.deploy -> laptop.cli: go install
-forgejo.deploy -> hydrogen.ui: gok update
-laptop.checkout -> laptop.cli: go build cmd/demo\nCGO_ENABLED=0
-laptop.cli -> laptop.store: build
-laptop.store -> hydrogen.perm: task push\n(ssh via breakglass)
-hydrogen.perm -> hydrogen.ui: -store
-hydrogen.caddy -> hydrogen.ui: proxy
-bitwarden -> laptop.cli: tp secrets
-bitwarden -> hydrogen.ui: gokrazy Environment\n(secrets.env)
-laptop.cli -> hetzner.server: hcloud API · ssh
-hydrogen.ui -> hetzner.server: hcloud API · ssh
-laptop.cli -> route53.record: up · down
-hydrogen.ui -> route53.record: up · down
+bitwarden -> operators.laptop: tp secrets
+bitwarden -> operators.hydrogen: gokrazy Environment
+operators.laptop -> hetzner.server: hcloud API · ssh
+operators.hydrogen -> hetzner.server: hcloud API · ssh
+operators.laptop -> route53.record: up · down
+operators.hydrogen -> route53.record: up · down

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-28
+
+ - Docs site, About page with component diagrams, expiry label fix
+
 ### Added
 - Docs site: `index.md` with the component structure, the `up` sequence
   and the demo workflow as d2 diagrams, plus decision tables; `task

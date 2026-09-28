@@ -44,12 +44,16 @@ type Server struct {
 	Labels   map[string]string
 }
 
-// expiresLabel holds a temporary server's removal time, RFC 3339 UTC.
-const expiresLabel = "expires"
+// expiresLabel holds a temporary server's removal time in UTC as
+// 20060102T150405Z: label values may only have letters, digits, - _ and .
+const (
+	expiresLabel  = "expires"
+	expiresLayout = "20060102T150405Z0700"
+)
 
 // Expires is when the server is to be removed, or zero for a standing one.
 func (s *Server) Expires() time.Time {
-	t, err := time.Parse(time.RFC3339, s.Labels[expiresLabel])
+	t, err := time.Parse(expiresLayout, s.Labels[expiresLabel])
 	if err != nil {
 		return time.Time{}
 	}
@@ -415,7 +419,7 @@ func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
 func labels(o UpOptions) map[string]string {
 	l := map[string]string{"project": "gobank", "environment": o.Env.Name}
 	if !o.Expires.IsZero() {
-		l[expiresLabel] = o.Expires.UTC().Format(time.RFC3339)
+		l[expiresLabel] = o.Expires.UTC().Format(expiresLayout)
 	}
 	return l
 }

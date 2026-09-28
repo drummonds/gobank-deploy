@@ -430,7 +430,7 @@ func TestReconcileResumesTemporaryEnvironmentsWithoutAJob(t *testing.T) {
 	ts, op := newTestServer(t)
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	op.mu.Lock()
-	op.statuses["demo"] = deploy.Status{Server: &deploy.Server{Name: "gobank-demo", IP: "10.0.0.3", Labels: map[string]string{"expires": expires.Format(time.RFC3339)}}}
+	op.statuses["demo"] = deploy.Status{Server: &deploy.Server{Name: "gobank-demo", IP: "10.0.0.3", Labels: map[string]string{"expires": expires.Format("20060102T150405Z0700")}}}
 	op.mu.Unlock()
 	srv := ts.Config.Handler.(*Server)
 	srv.Reconcile(context.Background())

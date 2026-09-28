@@ -197,7 +197,8 @@ func TestUpLabelsATemporaryServerWithItsExpiry(t *testing.T) {
 	if _, err := h.d.Up(context.Background(), UpOptions{Env: Environment{Name: "demo"}, Scale: "small", Create: true, Expires: noon}); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.cloud.created[0].Labels["expires"]; got != "2026-09-27T12:00:00Z" {
+	// Hetzner label values allow letters, digits, - _ . only: no colons.
+	if got := h.cloud.created[0].Labels["expires"]; got != "20260927T120000Z" {
 		t.Errorf("expires label = %q", got)
 	}
 	if got := h.cloud.created[0].Labels["expires"]; got != "" && !h.cloud.servers["gobank-demo"].Expires().Equal(noon) {
@@ -213,7 +214,7 @@ func TestUpLabelsATemporaryServerWithItsExpiry(t *testing.T) {
 func TestEnvironmentsCarryTheirExpiry(t *testing.T) {
 	h := newHarness()
 	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod"}
-	h.cloud.servers["gobank-demo"] = &Server{Name: "gobank-demo", Labels: map[string]string{"expires": "2026-09-27T12:00:00Z"}}
+	h.cloud.servers["gobank-demo"] = &Server{Name: "gobank-demo", Labels: map[string]string{"expires": "20260927T120000Z"}}
 	h.cloud.servers["gobank-odd"] = &Server{Name: "gobank-odd", Labels: map[string]string{"expires": "junk"}}
 	envs, err := h.d.Environments(context.Background())
 	if err != nil {

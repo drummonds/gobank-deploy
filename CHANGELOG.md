@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Docs site: `index.md` with the component structure, the `up` sequence
+  and the demo workflow as d2 diagrams, plus decision tables; `task
+  docs:build` renders it, `tp pages` previews it, deployed to
+  gobank-deploy.docs.bytestone.uk.
+- About page on the ui with the same three diagrams, embedded in the
+  binary so the appliance shows them.
+
 ## [0.1.1] - 2026-09-27
 
  - Route 53 hostnames, version comparison, demo workflow with automatic removal

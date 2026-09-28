@@ -1,0 +1,25 @@
+# Behaviour: what `up <env>` does, in order. -create is the only step that
+# starts billing; everything after it is the same for a redeploy.
+
+shape: sequence_diagram
+
+operator: "Operator\n(CLI or the page)"
+deploy: "gobank-deploy"
+hcloud: "Hetzner Cloud"
+r53: "Route 53"
+box: "gobank-<env>"
+
+operator -> deploy: "up <env> [-create] [-scale]"
+deploy -> hcloud: "server gobank-<env>?"
+hcloud -> deploy: "none · or existing"
+create: "only with -create — starts billing" {
+  deploy -> hcloud: "create firewall (22, 1347, icmp)"
+  deploy -> hcloud: "create server\ncloud-init: PostgreSQL, gobank user, systemd unit"
+}
+deploy -> r53: "A <env>.gobank.drummonds.net → IP"
+deploy -> deploy: "release: build cmd/demo from the checkout\nor take the store's latest"
+deploy -> box: "ssh (host key pinned; forgotten first when fresh)"
+deploy -> box: "cloud-init status --wait  (fresh server)"
+deploy -> box: "scp demo · /etc/gobank/deploy.env (GOBANK_MEMORY_LIMIT)\nsystemctl restart gobank-demo"
+deploy -> box: "GET / until it answers Model Bank vX"
+deploy -> operator: "URL · version · bills until down"

@@ -349,6 +349,33 @@ func TestNewEnvironmentIsCreatedByNameAndListed(t *testing.T) {
 	close(op.release)
 }
 
+// --- About ----------------------------------------------------------------------
+
+func TestAboutPageDescribesTheStructureWithDiagrams(t *testing.T) {
+	ts, _ := newTestServer(t)
+	_, index := get(t, ts, "/")
+	if !strings.Contains(index, `href="/about"`) {
+		t.Error("the page should link to About")
+	}
+	code, body := get(t, ts, "/about")
+	if code != 200 {
+		t.Fatalf("about: status %d", code)
+	}
+	for _, want := range []string{"Forgejo", "Hetzner", "Route 53", "hydrogen", `src="/assets/components.svg"`, `src="/assets/deploy-sequence.svg"`, `src="/assets/demo-workflow.svg"`, `href="/"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("about missing %q", want)
+		}
+	}
+	resp, err := ts.Client().Get(ts.URL + "/assets/components.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != 200 || !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Errorf("diagram: status %d, content type %q", resp.StatusCode, ct)
+	}
+}
+
 // --- Temporary environments: the demo workflow --------------------------------
 
 func TestNewEnvironmentWithARemovalTimeRunsTheDemoWorkflow(t *testing.T) {

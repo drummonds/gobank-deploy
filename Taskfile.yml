@@ -78,7 +78,30 @@ tasks:
         tar -C build/releases -cf - "$VER" latest | {{.SSH}} hydrogen "tar -xf - -C {{.DST}}"
         {{.SSH}} hydrogen "echo latest: \$(cat {{.DST}}/latest); ls -l {{.DST}}/$VER"
 
-  clean:
-    desc: Remove build output
+  docs:md:
+    desc: Render the markdown pages into docs/
     cmds:
-      - rm -rf build
+      - mkdir -p docs
+      - task-plus md2html --file index.md --dst docs
+      - task-plus md2html --file README.md --dst docs
+      - task-plus md2html --file CHANGELOG.md --dst docs
+      - task-plus md2html --file ROADMAP.md --dst docs
+
+  docs:d2:
+    desc: Render the d2 diagrams to SVG in docs/ and into the ui's embedded assets (demo-workflow.d2 comes from cmd/flowd2)
+    cmds:
+      - go run ./cmd/flowd2 > demo-workflow.d2
+      - for f in components deploy-sequence demo-workflow; do d2 $f.d2 docs/$f.svg; done
+      - mkdir -p internal/ui/assets && cp docs/components.svg docs/deploy-sequence.svg docs/demo-workflow.svg internal/ui/assets/
+      - chmod 644 docs/*.svg internal/ui/assets/*.svg
+
+  docs:build:
+    desc: Build the docs site into docs/ (tp pages serves it)
+    cmds:
+      - task: docs:md
+      - task: docs:d2
+
+  clean:
+    desc: Remove build output and rendered docs
+    cmds:
+      - rm -rf build docs/*.html

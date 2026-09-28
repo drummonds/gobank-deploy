@@ -4,3 +4,8 @@ remotes:
     token_env: BYTESTONE_FORGEJO_TOKEN
   - github
 install: true
+pages_build:
+  - task docs:build
+pages_deploy:
+  - type: rsync
+    site: gobank-deploy

@@ -116,11 +116,15 @@ forgotten first because Hetzner reuses addresses.
 - `internal/remote` — ssh `Dialer` with host-key pinning, Go `Builder`,
   HTTP `Prober`.
 - `internal/ui` — the lofigui page: states, create / redeploy / down / cancel,
-  one job per environment with its log; tested against a fake `Operator`.
+  one job per environment with its log, and an About page with the
+  component diagrams; tested against a fake `Operator`.
+- `internal/flows` — the workflows on gobank-workflow's pipeline runner:
+  the temporary demo environment.
+- `internal/route53`, `internal/store` — `DNS` on Route 53; the release store.
 - `cmd/gobank-deploy` — the command.
 
 ## Links
 
-- Documentation: (not yet published)
+- Documentation: https://gobank-deploy.docs.bytestone.uk/ (`tp pages` for a local preview)
 - Source: https://git.bytestone.uk/hum3/gobank-deploy
 - Mirror: https://github.com/drummonds/gobank-deploy

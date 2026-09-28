@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gobank environments — about</title>
+  <link rel="stylesheet" href="/assets/bulma.min.css">
+  <link rel="icon" href="/favicon.ico">
+</head>
+<body>
+  <nav class="navbar is-primary" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-bold" href="/">gobank environments</a>
+      <a class="navbar-item" href="/about">About</a>
+    </div>
+    <div class="navbar-end">
+      <div class="navbar-item"><span class="tag">{{.version}}</span></div>
+    </div>
+  </nav>
+
+  <section class="section">
+    <div class="container content">
+      <h1 class="title is-4">How the deployment fits together</h1>
+      <p>One environment (<code>prod</code>, <code>preprod</code>, <code>demo</code>, …) is one Hetzner Cloud server
+        running PostgreSQL and the Model Bank demo. gobank-deploy creates it, puts a release on it,
+        reports on it and deletes it. Creating a server is an explicit act; deleting it is what stops billing.</p>
+
+      <h2 class="title is-5">Components</h2>
+      <p>The code lives on the Forgejo at git.bytestone.uk. The laptop builds the demo from its gobank checkout
+        and pushes releases to hydrogen, the gokrazy appliance serving this page, which cannot build. Both drive
+        the same Hetzner project and the Route 53 zone, with secrets from Bitwarden.</p>
+      <figure><img src="/assets/components.svg" alt="Components: Forgejo, laptop, hydrogen, Hetzner Cloud, Route 53, Bitwarden"></figure>
+
+      <h2 class="title is-5">What <code>up</code> does</h2>
+      <p>The same sequence for Create and Redeploy; only the create box starts billing. The release is built from
+        the checkout on the laptop, or taken from the store here; the version the server then reports is what the
+        environments page compares against what the next up would deploy.</p>
+      <figure><img src="/assets/deploy-sequence.svg" alt="Sequence of an up: look up the server, create it, DNS, release, ssh, install, probe"></figure>
+
+      <h2 class="title is-5">The demo workflow</h2>
+      <p>"Remove after" on a Create form makes a temporary environment: a gobank-workflow pipeline instance keyed
+        by environment and expiry, created with the expiry as a label on the server, served until then, removed.
+        Every minute the page starts the workflow for any temporary server nobody is looking after, so a restart
+        does not leave one billing.</p>
+      <figure><img src="/assets/demo-workflow.svg" alt="Demo workflow: create, serve, remove"></figure>
+
+      <h2 class="title is-5">Links</h2>
+      <ul>
+        <li><a href="https://gobank-deploy.docs.bytestone.uk/">Documentation</a> — the same diagrams with the tables behind them</li>
+        <li><a href="https://git.bytestone.uk/hum3/gobank-deploy">gobank-deploy</a> · <a href="https://git.bytestone.uk/hum3/gobank">gobank</a> · <a href="https://git.bytestone.uk/hum3/gobank-workflow">gobank-workflow</a> on the Forgejo</li>
+      </ul>
+    </div>
+  </section>
+</body>
+</html>

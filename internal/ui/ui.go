@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"regexp"
 	"slices"
@@ -26,6 +27,12 @@ import (
 
 //go:embed templates
 var templateFS embed.FS
+
+// assetFS holds the component diagrams, rendered by task docs:d2 and
+// committed so the module builds anywhere.
+//
+//go:embed assets
+var assetFS embed.FS
 
 // Operator is what the page drives: the environment list and each status
 // are read on every render, up and down run as background jobs writing
@@ -141,6 +148,7 @@ type Server struct {
 	op      Operator
 	envs    []deploy.Environment // configured: always listed, provisioned or not
 	ctrl    *lofigui.Controller
+	about   *lofigui.Controller
 	mux     *http.ServeMux
 	Version string
 	// UpUnavailable, when set and returning a reason, is why this host
@@ -161,8 +169,17 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{op: op, envs: envs, ctrl: ctrl, jobs: map[string]*job{}, mux: http.NewServeMux()}
+	about, err := lofigui.NewControllerFromFS(templateFS, "templates", "about.html")
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{op: op, envs: envs, ctrl: ctrl, about: about, jobs: map[string]*job{}, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		s.about.RenderTemplate(w, lofigui.TemplateContext{"version": s.Version})
+	})
+	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(must(fs.Sub(assetFS, "assets")))))
 	s.mux.HandleFunc("POST /env", s.create)
 	s.mux.HandleFunc("POST /env/{env}/create", s.action("create"))
 	s.mux.HandleFunc("POST /env/{env}/redeploy", s.action("redeploy"))
@@ -171,6 +188,13 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
 	s.mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	return s, nil
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }

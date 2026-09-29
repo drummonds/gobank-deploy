@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- A refused Route 53 change no longer fails `up` or `down`: it is reported
+  and the deploy carries on by address.
+
 ### Added
 - The page and `status` report gobank's newest tag on the Forgejo (public
   tags API, no token) against what can be deployed from this host, and

@@ -75,14 +75,21 @@ func (c *fakeCloud) Servers(context.Context) ([]*Server, error) {
 type fakeDNS struct {
 	records map[string]string
 	deleted []string
+	err     error // every call fails with it
 }
 
 func (d *fakeDNS) Set(_ context.Context, name, ip string) error {
+	if d.err != nil {
+		return d.err
+	}
 	d.records[name] = ip
 	return nil
 }
 
 func (d *fakeDNS) Delete(_ context.Context, name string) error {
+	if d.err != nil {
+		return d.err
+	}
 	d.deleted = append(d.deleted, name)
 	delete(d.records, name)
 	return nil
@@ -270,6 +277,29 @@ func TestDownRemovesTheHostname(t *testing.T) {
 	// Idempotent: a second down asks the provider again, which tolerates absence.
 	if err := h.d.Down(context.Background(), prod); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// DNS is a convenience: a refused record must not stop a deploy or leave
+// a server billing, it is reported and the address still works.
+func TestARefusedDNSChangeIsAWarningNotAFailure(t *testing.T) {
+	h := newHarness()
+	dns := h.withDNS()
+	dns.err = errors.New("AccessDenied")
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true}); err != nil {
+		t.Fatalf("up should succeed without DNS: %v", err)
+	}
+	if h.build.builds != 1 || !strings.Contains(h.out.String(), "dns prod.gobank.test failed: AccessDenied") {
+		t.Errorf("builds = %d, output:\n%s", h.build.builds, h.out.String())
+	}
+	if !strings.Contains(h.out.String(), "http://10.0.0.7:1347/") {
+		t.Errorf("the address is what works when DNS did not:\n%s", h.out.String())
+	}
+	if err := h.d.Down(context.Background(), prod); err != nil {
+		t.Fatalf("down should succeed without DNS: %v", err)
+	}
+	if len(h.cloud.deleted) != 1 || !strings.Contains(h.out.String(), "dns remove prod.gobank.test failed") {
+		t.Errorf("deleted = %v, output:\n%s", h.cloud.deleted, h.out.String())
 	}
 }
 

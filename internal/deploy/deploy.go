@@ -261,22 +261,27 @@ func (d *Deployer) hostname(env Environment) string {
 	return env.Name + "." + d.Domain
 }
 
-// publish points the environment's hostname at the server, if there is DNS.
-func (d *Deployer) publish(ctx context.Context, env Environment, srv *Server) error {
+// publish points the environment's hostname at the server, if there is
+// DNS. A refused change is reported, not fatal: the address still works,
+// and a deploy must not stop, nor a server be left billing, over a name.
+// It returns whether the name can be relied on.
+func (d *Deployer) publish(ctx context.Context, env Environment, srv *Server) bool {
 	host := d.hostname(env)
 	if host == "" {
-		return nil
+		return false
 	}
 	d.printf("== dns %s -> %s\n", host, srv.IP)
 	if err := d.DNS.Set(ctx, host, srv.IP); err != nil {
-		return fmt.Errorf("dns %s: %w", host, err)
+		d.printf("dns %s failed: %v — carrying on by address\n", host, err)
+		return false
 	}
-	return nil
+	return true
 }
 
-// publicURL is where people reach the environment: by hostname when it has one.
-func (d *Deployer) publicURL(env Environment, srv *Server) string {
-	if host := d.hostname(env); host != "" {
+// publicURL is where people reach the environment: by hostname when it has
+// one that is known to be set, else by address.
+func (d *Deployer) publicURL(env Environment, srv *Server, named bool) string {
+	if host := d.hostname(env); host != "" && named {
 		return serviceURL(host)
 	}
 	return serviceURL(srv.IP)
@@ -317,9 +322,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	} else {
 		d.printf("== server %s already exists (%s) — redeploying binary only\n", name, srv.Type)
 	}
-	if err := d.publish(ctx, o.Env, srv); err != nil {
-		return nil, err
-	}
+	named := d.publish(ctx, o.Env, srv)
 
 	goarch := goarchFor(srv.Type)
 	d.printf("== build demo binary (linux/%s)\n", goarch)
@@ -353,7 +356,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if !d.waitServing(ctx, url) {
 		return nil, fmt.Errorf("%s: %w (check: journalctl -u %s on the box)", url, ErrNotServing, serviceName)
 	}
-	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, d.publicURL(o.Env, srv))
+	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, d.publicURL(o.Env, srv, named))
 	return srv, nil
 }
 
@@ -503,7 +506,7 @@ func (d *Deployer) Down(ctx context.Context, env Environment) error {
 	if host := d.hostname(env); host != "" {
 		d.printf("== dns remove %s\n", host)
 		if err := d.DNS.Delete(ctx, host); err != nil {
-			return fmt.Errorf("dns %s: %w", host, err)
+			d.printf("dns remove %s failed: %v — the record is stale until removed by hand\n", host, err)
 		}
 	}
 	d.printf("done — nothing left billing\n")
@@ -552,7 +555,7 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	// Probe by address: it works before the hostname has propagated.
 	version, serving := d.Probe.Probe(ctx, serviceURL(srv.IP))
 	return Status{
-		Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv),
+		Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv, true),
 		Serving: serving, Version: version, Available: d.Build.Available(),
 	}, nil
 }

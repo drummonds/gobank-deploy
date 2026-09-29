@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+ - The appliance fetches gobank's newest release itself: release gobank, press Redeploy
+
+### Added
+- Fetch as the stage before a deploy from a store: when gobank's newest
+  tag is not in the store, its release's `demo-linux-amd64` and
+  `demo-linux-arm64` (attached by gobank's `tp release`, now a goreleaser
+  build) are fetched into the store and become the latest. A new gobank
+  version reaches an environment without releasing gobank-deploy or
+  updating hydrogen. A tag without binaries or a Forgejo out of reach is a
+  notice; the deploy carries what the store has. A release the store
+  already has is not fetched again, so `task push` of an older one is
+  still a rollback.
+
+### Changed
+- With a store and a repo, an empty store no longer hides Create and
+  Redeploy: the first deploy fills it. The page and `status` say the next
+  deploy fetches a lagging release, rather than asking for a push.
+
 ## [0.1.5] - 2026-09-29
 
 ## [0.1.4] - 2026-09-29

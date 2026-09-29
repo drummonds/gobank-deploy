@@ -1,6 +1,8 @@
 # One question: how does a gobank version reach an environment? Code on
-# the Forgejo, built on the laptop, pushed to the appliance's store,
-# deployed by either. What each part talks to at run time is components.d2.
+# the Forgejo; releasing it there builds the binaries (the build stage);
+# the appliance fetches them into its store, the laptop builds from its
+# checkout and can push; either deploys. What each part talks to at run
+# time is components.d2.
 
 direction: down
 
@@ -12,7 +14,9 @@ classes: {
 forgejo: "Forgejo — git.bytestone.uk" {
   class: place
   gobank: "gobank\ncmd/demo: the Model Bank" {class: part}
+  release: "gobank release vX.Y.Z\ndemo-linux-amd64 · arm64" {class: part}
   deploy: "gobank-deploy\nthis orchestrator" {class: part}
+  gobank -> release: tp release\n(goreleaser: the build stage)
 }
 
 laptop: "Laptop" {
@@ -35,7 +39,8 @@ forgejo.deploy -> laptop.cli: go install
 forgejo.deploy -> hydrogen.ui: gok update
 laptop.checkout -> laptop.cli: go build cmd/demo\n(CGO off, amd64 + arm64)
 laptop.cli -> laptop.store: build
-laptop.store -> hydrogen.perm: task push
+laptop.store -> hydrogen.perm: task push\n(unbuilt release, or rollback)
+forgejo.release -> hydrogen.perm: Redeploy: fetch\nthe newest tag
 hydrogen.perm -> hydrogen.ui: latest
 laptop.cli -> server: up: scp + restart
 hydrogen.ui -> server: Redeploy: scp + restart

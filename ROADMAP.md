@@ -30,6 +30,11 @@ inside the box first; expand/contract migrations through gobank-db.
       environment (create, serve until expiry, remove), resumed from the
       server's expiry label after a restart. Run records in memory until
       the go-postgres store lands (issue #1)
+- [x] Story 1f — The gobank release is the build stage: gobank's `tp
+      release` runs goreleaser and attaches `demo-linux-amd64/arm64` to
+      the Forgejo release; `up` from a store fetches the newest tag's
+      binaries into it first. A new gobank version needs no gobank-deploy
+      release or hydrogen update
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

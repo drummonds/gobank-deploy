@@ -16,9 +16,11 @@ act; deleting it is what stops billing.
 
 ## How a version reaches an environment
 
-The code comes from the Forgejo; the laptop builds the demo from its
-gobank checkout and pushes releases to the appliance, which cannot build;
-either deploys to a server.
+The code comes from the Forgejo. Releasing gobank there is the build
+stage: goreleaser attaches the demo binaries to the release, and the
+appliance, which cannot build, fetches them into its store before a
+deploy. The laptop builds the demo from its own checkout and can push a
+build to the appliance by hand. Either deploys to a server.
 
 ![Release path](release-path.svg)
 
@@ -33,7 +35,8 @@ with secrets from Bitwarden.
 |------|-------|------|
 | gobank `cmd/demo` | Forgejo, checked out at `../gobank` | the Model Bank: what gets deployed |
 | gobank-deploy | Forgejo; `go install` on the laptop, a gokrazy package on hydrogen | this orchestrator: `up`, `down`, `status`, `ui`, `build` |
-| release store | `build/releases` on the laptop, `/perm/gobank-deploy/releases` on hydrogen | `demo` for linux amd64 and arm64 per version, plus `latest`; `task push` copies it over |
+| gobank release | Forgejo release of a tag | `demo-linux-amd64`, `demo-linux-arm64` from gobank's `tp release` (goreleaser): the build stage |
+| release store | `build/releases` on the laptop, `/perm/gobank-deploy/releases` on hydrogen | `demo` for linux amd64 and arm64 per version, plus `latest`; filled from the gobank release on deploy, or by `task push` |
 | Hetzner server `gobank-<env>` | Hetzner Cloud project | Ubuntu, PostgreSQL, the demo on :1347; a firewall of the same name; labels `environment` and, for a temporary one, `expires` |
 | Route 53 record | `drummonds.net` zone | `<env>.gobank.drummonds.net` → the server, TTL 60 because addresses are reused |
 | secrets | Bitwarden | `tp secrets` on the laptop; the gokrazy `Environment` on hydrogen |

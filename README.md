@@ -36,9 +36,10 @@ while its server exists. So `-envs` is only the standing environments
 worth a "Not provisioned" row.
 
 On a host that cannot build `cmd/demo` (no Go toolchain or no gobank
-checkout at `-src`), the page shows status and offers Down only; Create and
-Redeploy need a machine that can build. That is how it runs on hydrogen, the
-LAN gokrazy appliance, as a package of its `gok_local` instance config:
+checkout at `-src`), the page deploys from a release store filled from the
+Forgejo, or, without one, shows status and offers Down only. That is how it
+runs on hydrogen, the LAN gokrazy appliance, as a package of its `gok_local`
+instance config:
 
 ```json
 "git.bytestone.uk/hum3/gobank-deploy/cmd/gobank-deploy": {
@@ -51,18 +52,31 @@ LAN gokrazy appliance, as a package of its `gok_local` instance config:
 ```
 
 with Caddy proxying `gobank-deploy.lan.drummonds.net` to `:1348`. The
-appliance cannot build `cmd/demo`, so it deploys from a **release store**:
+appliance cannot build `cmd/demo`, so it deploys from a **release store**
+(`-store`), which it fills from the Forgejo itself: gobank's `tp release`
+runs goreleaser (the **build stage**, `.goreleaser.yaml` in gobank) and
+attaches `demo-linux-amd64` and `demo-linux-arm64` to the release of the
+tag, and before every Create or Redeploy the page fetches the newest tag's
+binaries into the store when it lacks them. So a new gobank version reaches
+an environment with nothing else released or updated: release gobank, press
+Redeploy. A tag without binaries (from before the build stage) or a Forgejo
+out of reach is a notice in the job log, and the deploy carries what the
+store already has.
+
+The laptop can fill the store by hand for a release the repo has not
+built, or to roll back:
 
 ```sh
 task build    # cmd/demo for linux amd64+arm64 into build/releases/<version>/, marks it latest
 task push     # build, then copy the latest release to hydrogen:/perm/gobank-deploy/releases
 ```
 
-Create and Redeploy on the page deploy whatever was pushed last; pushing
-an older version again is a rollback. The page and `status` show gobank's
-newest tag on the Forgejo beside what this host can deploy, and flag the
-store (or the laptop's checkout) when it is behind: that is the cue for
-`task push` or a pull. Until something has been pushed the
+Pushing an older version again makes it the store's latest, and since the
+store still has the newer one it is not fetched again: the next deploy is
+the rollback. The page and `status` show gobank's newest tag on the Forgejo
+beside what this host can deploy, and say whether the next deploy fetches
+it (a store) or the laptop's checkout needs a pull. Without a store and a
+toolchain the
 page offers status and Down only, and says why. The appliance's ssh
 identity is `GOBANK_DEPLOY_SSH_KEY` (base64 of the private key in PEM,
 from the gokrazy secrets note); its public half is registered in the

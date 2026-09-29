@@ -9,9 +9,13 @@
 //	gobank-deploy build [-out build/releases]
 //
 // A host that cannot build cmd/demo (the hydrogen appliance) deploys from
-// a release store instead: -store DIR, filled by `build` on the laptop and
-// copied over (task push). Its ssh identity comes from GOBANK_DEPLOY_SSH_KEY
-// (base64 of a private key in PEM) since there is no agent or ~/.ssh.
+// a release store instead: -store DIR. Before a deploy the repo's newest
+// release is fetched into it (the binaries gobank's tp release puts on the
+// Forgejo release), so a new gobank version needs nothing else deployed;
+// `build` on the laptop and `task push` fill it by hand for a release the
+// repo has not built, or a rollback. Its ssh identity comes from
+// GOBANK_DEPLOY_SSH_KEY (base64 of a private key in PEM) since there is
+// no agent or ~/.ssh.
 //
 // Each environment gets the hostname <env>.<-dns domain> in Route 53 (A
 // record, set on up, removed on down) when AWS credentials are present;
@@ -69,9 +73,11 @@ func usage() {
 Global flags (before the subcommand):
   -src DIR     gobank checkout to build cmd/demo from (default ../gobank)
   -build DIR   build directory for the binary and pinned host keys (default build)
-  -store DIR   deploy from this release store instead of building (the appliance)
+  -store DIR   deploy from this release store instead of building (the appliance);
+               the repo's newest release is fetched into it before a deploy
   -dns DOMAIN  each environment is <env>.DOMAIN in Route 53 (default gobank.drummonds.net; "" for none)
-  -repo URL    gobank on the Forgejo, whose newest tag is reported (default https://git.bytestone.uk/hum3/gobank)
+  -repo URL    gobank on the Forgejo: its newest tag is reported, and its release of that tag
+               fetched into -store (default https://git.bytestone.uk/hum3/gobank; "" for none)
 
 HCLOUD_TOKEN must be set: run via  tp secrets gobank-deploy ...
 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for -dns; without them DNS is skipped.
@@ -124,15 +130,21 @@ func main() {
 		repo = &forge.Repo{URL: *repoURL}
 	}
 	var builder deploy.Builder = &remote.Builder{Src: *src, Dir: *buildDir}
+	var releaseStore deploy.ReleaseStore
 	upUnavailable := func() string { return remote.CanBuild(*src) }
 	if *storeDir != "" {
 		st := &store.Store{Dir: *storeDir}
-		builder, upUnavailable = st, st.Unavailable
+		builder, releaseStore, upUnavailable = st, st, st.Unavailable
+		if repo != nil {
+			// An empty store is filled from the repo by the deploy itself.
+			upUnavailable = func() string { return "" }
+		}
 	}
 	newDeployer := func(out io.Writer) *deploy.Deployer {
 		return &deploy.Deployer{
 			Cloud: cloud,
 			Repo:  repo,
+			Store: releaseStore,
 			DNS:   dns, Domain: *domain,
 			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts"), Identity: identity},
 			Build: builder,
@@ -260,7 +272,7 @@ func buildRelease(ctx context.Context, src, buildDir, out string) error {
 	}
 	st := &store.Store{Dir: out}
 	var ver string
-	for _, goarch := range []string{"amd64", "arm64"} {
+	for _, goarch := range deploy.Architectures {
 		b := &remote.Builder{Src: src, Dir: filepath.Join(buildDir, "linux-"+goarch)}
 		rel, err := b.Build(ctx, goarch)
 		if err != nil {
@@ -293,7 +305,10 @@ func printReleases(ctx context.Context, d *deploy.Deployer) {
 	}
 	if rel.Repo != "" {
 		fmt.Printf("repo:   newest tag %s", rel.Repo)
-		if rel.Lagging() {
+		switch {
+		case rel.Lagging() && rel.Fetches:
+			fmt.Printf(" — the store has %s; the next up fetches %s", rel.Available, rel.Repo)
+		case rel.Lagging():
 			fmt.Printf(" — %s is what can be deployed from here (task push, or pull the checkout)", rel.Available)
 		}
 		fmt.Println()

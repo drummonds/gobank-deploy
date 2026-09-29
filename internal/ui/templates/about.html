@@ -26,9 +26,11 @@
         reports on it and deletes it. Creating a server is an explicit act; deleting it is what stops billing.</p>
 
       <h2 class="title is-5">How a version reaches an environment</h2>
-      <p>The code lives on the Forgejo at git.bytestone.uk. The laptop builds the demo from its gobank checkout
-        and pushes releases to hydrogen, the gokrazy appliance, which cannot build; either deploys to a server.</p>
-      <figure><img src="/assets/release-path.svg" alt="Release path: Forgejo, laptop build, task push to hydrogen's store, deploy to the server"></figure>
+      <p>The code lives on the Forgejo at git.bytestone.uk. Releasing gobank there is the build stage: goreleaser
+        attaches the demo binaries to the release, and hydrogen, the gokrazy appliance, which cannot build, fetches
+        them into its store before a deploy. The laptop builds the demo from its own checkout and can push a build
+        to hydrogen by hand. Either deploys to a server.</p>
+      <figure><img src="/assets/release-path.svg" alt="Release path: gobank release on the Forgejo with built binaries, fetched into hydrogen's store or built and pushed from the laptop, deployed to the server"></figure>
 
       <h2 class="title is-5">What the orchestrator talks to</h2>
       <p>From either place it runs: the same Hetzner project and the Route 53 zone, with secrets from Bitwarden.</p>

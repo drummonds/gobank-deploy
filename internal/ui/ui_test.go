@@ -223,6 +223,16 @@ func TestPageShowsTheReposLatestTagAgainstWhatIsDeployableHere(t *testing.T) {
 			t.Errorf("page missing %q", want)
 		}
 	}
+	if !strings.Contains(body, "push a newer release") {
+		t.Error("a host that cannot fetch is told to push or pull")
+	}
+	op.mu.Lock()
+	op.releases = deploy.Releases{Repo: "v0.3.48", Available: "v0.3.44", Fetches: true}
+	op.mu.Unlock()
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, "behind the repo") || !strings.Contains(body, "fetched by the next deploy") || strings.Contains(body, "push a newer release") {
+		t.Error("a store is told the next deploy fetches the release")
+	}
 	op.mu.Lock()
 	op.releases = deploy.Releases{Repo: "v0.3.48", Available: "v0.3.48"}
 	op.mu.Unlock()

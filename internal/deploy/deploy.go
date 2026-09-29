@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -124,9 +126,31 @@ type Prober interface {
 	Probe(ctx context.Context, url string) (version string, serving bool)
 }
 
-// Repo is the source repository's release state: its newest tag.
+// Repo is the source repository's release state: its newest tag, and the
+// binaries its release of a tag carries (the build stage, run when the
+// tag is released).
 type Repo interface {
 	LatestTag(ctx context.Context) (string, error)
+	// Download writes tag's built demo for goarch to dst, executable.
+	// ErrNoRelease when the tag has no such build.
+	Download(ctx context.Context, tag, goarch, dst string) error
+}
+
+// ErrNoRelease: the tag has no built binary on the repo (a tag from before
+// the build stage existed, or a release still in progress).
+var ErrNoRelease = errors.New("no built release for this tag on the repo")
+
+// Architectures are the server architectures a release is built for: x86
+// and Ampere ARM.
+var Architectures = []string{"amd64", "arm64"}
+
+// ReleaseStore is a Builder that keeps built releases rather than making
+// them: the appliance's. A release the repo has built is fetched into it
+// before a deploy.
+type ReleaseStore interface {
+	Has(version string) bool
+	// Put adds version's binary for goarch and makes version the latest.
+	Put(version, goarch, binary string) error
 }
 
 // Releases is where versions stand: the newest tag on the repo, and what
@@ -134,6 +158,7 @@ type Repo interface {
 type Releases struct {
 	Repo      string // newest tag; "" without a repo
 	Available string // what the next up deploys from here; "" when unknown
+	Fetches   bool   // the next up fetches the repo's release itself (a store)
 }
 
 // Lagging: the repo has a tag that cannot be deployed from here yet — the
@@ -179,8 +204,12 @@ type Deployer struct {
 	Build Builder
 	Probe Prober
 
-	// Repo, when set, is the source repository, for its newest tag.
+	// Repo, when set, is the source repository, for its newest tag and
+	// the binaries it has built.
 	Repo Repo
+	// Store, when set with Repo, is Build as a release store: the newest
+	// release on Repo is fetched into it before a deploy.
+	Store ReleaseStore
 
 	// DNS and Domain, when set, give each environment the hostname
 	// <env>.<Domain>, pointed at its server on up and removed on down.
@@ -324,6 +353,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	}
 	named := d.publish(ctx, o.Env, srv)
 
+	d.fetch(ctx)
 	goarch := goarchFor(srv.Type)
 	d.printf("== build demo binary (linux/%s)\n", goarch)
 	rel, err := d.Build.Build(ctx, goarch)
@@ -358,6 +388,55 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	}
 	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, d.publicURL(o.Env, srv, named))
 	return srv, nil
+}
+
+// fetch is the build stage before a deploy from a store: the repo's newest
+// tag, when the store lacks it, is fetched for every architecture and
+// becomes the store's latest. A release the store already has is left
+// alone, so an older one put back (a rollback) stays the latest. A tag
+// without binaries or a repo out of reach is a notice: the deploy carries
+// what the store has.
+func (d *Deployer) fetch(ctx context.Context) {
+	if d.Repo == nil || d.Store == nil {
+		return
+	}
+	instead := func(format string, args ...any) {
+		d.printf(format+" — deploying %s from the store\n", append(args, d.Build.Available())...)
+	}
+	tag, err := d.Repo.LatestTag(ctx)
+	if err != nil {
+		instead("repo: %v", err)
+		return
+	}
+	if tag == "" || d.Store.Has(tag) {
+		return
+	}
+	d.printf("== fetch %s from the repo's release\n", tag)
+	dir, err := os.MkdirTemp("", "gobank-deploy-fetch-")
+	if err != nil {
+		instead("fetch %s: %v", tag, err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	binaries := map[string]string{}
+	for _, goarch := range Architectures {
+		dst := filepath.Join(dir, "demo-linux-"+goarch)
+		switch err := d.Repo.Download(ctx, tag, goarch, dst); {
+		case errors.Is(err, ErrNoRelease):
+			instead("%s has no built demo for linux/%s on the repo", tag, goarch)
+			return
+		case err != nil:
+			instead("fetch %s: %v", tag, err)
+			return
+		}
+		binaries[goarch] = dst
+	}
+	for _, goarch := range Architectures {
+		if err := d.Store.Put(tag, goarch, binaries[goarch]); err != nil {
+			instead("store %s: %v", tag, err)
+			return
+		}
+	}
 }
 
 // appShareWithLocalPostgres is the fraction of the box the app may use
@@ -534,7 +613,7 @@ func (d *Deployer) Environments(ctx context.Context) ([]Environment, error) {
 // Releases reports the newest tag on the repo against what this host
 // would deploy. The repo failing still returns what is available here.
 func (d *Deployer) Releases(ctx context.Context) (Releases, error) {
-	rel := Releases{Available: d.Build.Available()}
+	rel := Releases{Available: d.Build.Available(), Fetches: d.Store != nil}
 	if d.Repo == nil {
 		return rel, nil
 	}

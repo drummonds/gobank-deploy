@@ -93,3 +93,19 @@ func TestTheLastPutVersionIsWhatBuildReturns(t *testing.T) {
 		t.Errorf("version = %q, want v1 (the last put)", rel.Version)
 	}
 }
+
+func TestHasIsWhetherTheVersionWasPut(t *testing.T) {
+	s := &Store{Dir: filepath.Join(t.TempDir(), "releases")}
+	if s.Has("v1") {
+		t.Fatal("empty store has nothing")
+	}
+	if err := s.Put("v1", "amd64", binary(t, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("v2", "amd64", binary(t, "y")); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Has("v1") || !s.Has("v2") || s.Has("v3") {
+		t.Errorf("has v1 %v v2 %v v3 %v", s.Has("v1"), s.Has("v2"), s.Has("v3"))
+	}
+}

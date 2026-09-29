@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -532,11 +533,151 @@ func TestDownIsIdempotent(t *testing.T) {
 // --- Releases -------------------------------------------------------------------
 
 type fakeRepo struct {
-	tag string
-	err error
+	tag       string
+	err       error
+	built     bool     // the tag's release carries demo binaries
+	downloads []string // "<tag> <goarch>"
 }
 
 func (r *fakeRepo) LatestTag(context.Context) (string, error) { return r.tag, r.err }
+
+func (r *fakeRepo) Download(_ context.Context, tag, goarch, dst string) error {
+	if r.err != nil {
+		return r.err
+	}
+	if !r.built || tag != r.tag {
+		return ErrNoRelease
+	}
+	r.downloads = append(r.downloads, tag+" "+goarch)
+	return os.WriteFile(dst, []byte(tag+" "+goarch), 0o755)
+}
+
+// fakeStore is a release store: what it has, and what was put into it.
+type fakeStore struct {
+	fakeBuilder
+	has  map[string]bool
+	puts []string // "<version> <goarch> <binary content>"
+}
+
+func (s *fakeStore) Has(version string) bool { return s.has[version] }
+
+func (s *fakeStore) Put(version, goarch, binary string) error {
+	b, err := os.ReadFile(binary)
+	if err != nil {
+		return err
+	}
+	s.has[version] = true
+	s.puts = append(s.puts, version+" "+goarch+" "+string(b))
+	return nil
+}
+
+// withStore makes the harness deploy from a release store holding v0.3.44.
+func (h *harness) withStore() *fakeStore {
+	st := &fakeStore{fakeBuilder: fakeBuilder{available: "v0.3.44"}, has: map[string]bool{"v0.3.44": true}}
+	h.d.Build, h.d.Store = st, st
+	return st
+}
+
+// --- Fetch: the build stage before a deploy from a store ------------------------
+
+// A release the repo has built that the store lacks is fetched into the
+// store, for every server architecture, before the deploy; the deploy
+// then carries it.
+func TestUpFetchesTheReposNewestReleaseIntoTheStore(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23"}
+	st := h.withStore()
+	h.d.Repo = &fakeRepo{tag: "v0.3.48", built: true}
+
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"v0.3.48 amd64 v0.3.48 amd64", "v0.3.48 arm64 v0.3.48 arm64"}
+	if !slices.Equal(st.puts, want) {
+		t.Errorf("puts = %v, want %v", st.puts, want)
+	}
+	if st.builds != 1 {
+		t.Errorf("builds = %d", st.builds)
+	}
+	if !strings.Contains(h.out.String(), "== fetch v0.3.48") {
+		t.Errorf("output should show the fetch stage:\n%s", h.out.String())
+	}
+}
+
+// A release the store already has is not fetched again, so putting an
+// older release back (a rollback) is what the next deploy carries.
+func TestUpDoesNotRefetchAReleaseTheStoreHas(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23"}
+	st := h.withStore()
+	st.has["v0.3.48"] = true // fetched earlier; latest was then put back to v0.3.44
+	repo := &fakeRepo{tag: "v0.3.48", built: true}
+	h.d.Repo = repo
+
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.downloads) != 0 || len(st.puts) != 0 {
+		t.Errorf("downloads = %v, puts = %v", repo.downloads, st.puts)
+	}
+	if strings.Contains(h.out.String(), "== fetch") {
+		t.Errorf("no fetch stage expected:\n%s", h.out.String())
+	}
+}
+
+// A tag without built binaries (releases before the build stage existed)
+// or a repo that cannot be reached is a notice; the deploy carries what
+// the store has.
+func TestAReleaseThatCannotBeFetchedIsANoticeNotAFailure(t *testing.T) {
+	for name, repo := range map[string]*fakeRepo{
+		"tag without binaries": {tag: "v0.3.48"},
+		"repo down":            {tag: "v0.3.48", err: errors.New("forge down")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness()
+			h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23"}
+			st := h.withStore()
+			h.d.Repo = repo
+			if _, err := h.d.Up(context.Background(), UpOptions{Env: prod}); err != nil {
+				t.Fatal(err)
+			}
+			if len(st.puts) != 0 || st.builds != 1 {
+				t.Errorf("puts = %v, builds = %d", st.puts, st.builds)
+			}
+			if out := h.out.String(); !strings.Contains(out, "v0.3.44") {
+				t.Errorf("output should say the store's v0.3.44 is deployed instead:\n%s", out)
+			}
+		})
+	}
+}
+
+// Without a store (the laptop builds from its checkout) nothing is fetched.
+func TestUpWithoutAStoreDoesNotFetch(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23"}
+	repo := &fakeRepo{tag: "v0.3.48", built: true}
+	h.d.Repo = repo
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.downloads) != 0 {
+		t.Errorf("downloads = %v", repo.downloads)
+	}
+}
+
+// Releases says whether the next up fetches a lagging release itself.
+func TestReleasesSaysWhetherTheNextUpFetches(t *testing.T) {
+	h := newHarness()
+	h.d.Repo = &fakeRepo{tag: "v0.3.48"}
+	h.build.available = "v0.3.44"
+	if rel, _ := h.d.Releases(context.Background()); rel.Fetches {
+		t.Errorf("a checkout does not fetch: %+v", rel)
+	}
+	h.withStore()
+	if rel, _ := h.d.Releases(context.Background()); !rel.Fetches {
+		t.Errorf("a store fetches: %+v", rel)
+	}
+}
 
 // Where versions stand: the newest tag on the repo against what this
 // host would deploy. The store or checkout can lag the repo.

@@ -1,11 +1,14 @@
 // Package store is a directory of demo releases: what a host that cannot
-// build cmd/demo deploys from. The laptop builds into one and copies it
-// to the appliance's /perm; the appliance's Deployer reads it as its
-// Builder.
+// build cmd/demo deploys from. The appliance's Deployer reads it as its
+// Builder and fetches the repo's releases into it; the laptop can also
+// build into one and copy it over.
 //
 // Layout: <Dir>/<version>/demo-linux-<goarch>, and <Dir>/latest naming
 // the version to deploy. Putting a version makes it the latest, so
-// putting an older one again is a rollback.
+// putting an older one again is a rollback. The Deployer fetches the
+// repo's newest release into the store itself (deploy.ReleaseStore), so
+// the laptop's push is for a release the repo has not built, or a
+// rollback.
 package store
 
 import (
@@ -41,6 +44,15 @@ func (s *Store) Latest() string {
 
 // Available implements deploy.Builder: the latest release is what Build deploys.
 func (s *Store) Available() string { return s.Latest() }
+
+// Has: version was put into the store (whatever the latest is now).
+func (s *Store) Has(version string) bool {
+	if version == "" || strings.ContainsAny(version, `/\`) {
+		return false
+	}
+	st, err := os.Stat(filepath.Join(s.Dir, version))
+	return err == nil && st.IsDir()
+}
 
 // Unavailable is why up cannot run from this store, or "" when it can.
 func (s *Store) Unavailable() string {

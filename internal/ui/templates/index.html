@@ -21,6 +21,13 @@
 
   <section class="section">
     <div class="container">
+      <p class="is-size-7 mb-3">
+        {{if .releases.Repo}}gobank newest tag <strong>{{.releases.Repo}}</strong>{{end}}
+        {{if .releases.Available}}· deployable from here <strong>{{.releases.Available}}</strong>
+          {{if .releases.Lagging}}<span class="tag is-warning">behind the repo</span> <span class="has-text-grey">push a newer release to this store, or pull the checkout</span>{{end}}
+        {{end}}
+        {{if .releasesError}}<span class="has-text-danger">repo: {{.releasesError}}</span>{{end}}
+      </p>
       <table class="table is-fullwidth is-striped">
         <thead>
           <tr><th>Environment</th><th>State</th><th>Version</th><th>Server</th><th>Address</th><th>Controls</th></tr>

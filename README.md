@@ -59,7 +59,10 @@ task push     # build, then copy the latest release to hydrogen:/perm/gobank-dep
 ```
 
 Create and Redeploy on the page deploy whatever was pushed last; pushing
-an older version again is a rollback. Until something has been pushed the
+an older version again is a rollback. The page and `status` show gobank's
+newest tag on the Forgejo beside what this host can deploy, and flag the
+store (or the laptop's checkout) when it is behind: that is the cue for
+`task push` or a pull. Until something has been pushed the
 page offers status and Down only, and says why. The appliance's ssh
 identity is `GOBANK_DEPLOY_SSH_KEY` (base64 of the private key in PEM,
 from the gokrazy secrets note); its public half is registered in the

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The page and `status` report gobank's newest tag on the Forgejo (public
+  tags API, no token) against what can be deployed from this host, and
+  say when the store or checkout is behind the repo. `-repo URL`.
+
 ## [0.1.3] - 2026-09-28
 
 ## [0.1.2] - 2026-09-28

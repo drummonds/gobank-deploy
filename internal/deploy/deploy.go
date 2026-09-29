@@ -124,6 +124,25 @@ type Prober interface {
 	Probe(ctx context.Context, url string) (version string, serving bool)
 }
 
+// Repo is the source repository's release state: its newest tag.
+type Repo interface {
+	LatestTag(ctx context.Context) (string, error)
+}
+
+// Releases is where versions stand: the newest tag on the repo, and what
+// this host would deploy (the store's latest, or the checkout's describe).
+type Releases struct {
+	Repo      string // newest tag; "" without a repo
+	Available string // what the next up deploys from here; "" when unknown
+}
+
+// Lagging: the repo has a tag that cannot be deployed from here yet — the
+// store needs a push, or the checkout a pull. A checkout past the tag
+// (describe with a suffix) is not lagging.
+func (r Releases) Lagging() bool {
+	return r.Repo != "" && r.Available != "" && r.Available != r.Repo && !strings.HasPrefix(r.Available, r.Repo+"-")
+}
+
 // DNS publishes hostnames: Route53 in production, a fake in tests.
 type DNS interface {
 	// Set points name at ip, replacing whatever it pointed at.
@@ -159,6 +178,9 @@ type Deployer struct {
 	Dial  Dialer
 	Build Builder
 	Probe Prober
+
+	// Repo, when set, is the source repository, for its newest tag.
+	Repo Repo
 
 	// DNS and Domain, when set, give each environment the hostname
 	// <env>.<Domain>, pointed at its server on up and removed on down.
@@ -504,6 +526,18 @@ func (d *Deployer) Environments(ctx context.Context) ([]Environment, error) {
 	}
 	slices.SortFunc(envs, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	return envs, nil
+}
+
+// Releases reports the newest tag on the repo against what this host
+// would deploy. The repo failing still returns what is available here.
+func (d *Deployer) Releases(ctx context.Context) (Releases, error) {
+	rel := Releases{Available: d.Build.Available()}
+	if d.Repo == nil {
+		return rel, nil
+	}
+	tag, err := d.Repo.LatestTag(ctx)
+	rel.Repo = tag
+	return rel, err
 }
 
 // Status reports whether the environment is provisioned and answering.

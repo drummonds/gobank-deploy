@@ -29,6 +29,8 @@ type fakeOperator struct {
 	downs    []deploy.Environment
 	demos    []demoCall
 	runs     []wf.RunRecord
+	releases deploy.Releases
+	relErr   error
 	release  chan struct{}
 	ctxErr   error
 }
@@ -53,6 +55,12 @@ func (f *fakeOperator) Demo(ctx context.Context, env deploy.Environment, scale s
 		return ctx.Err()
 	}
 	return nil
+}
+
+func (f *fakeOperator) Releases(context.Context) (deploy.Releases, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.releases, f.relErr
 }
 
 func (f *fakeOperator) Runs(context.Context, int) ([]wf.RunRecord, error) {
@@ -201,6 +209,33 @@ func TestPageComparesRunningAndAvailableVersions(t *testing.T) {
 	_, body = get(t, ts, "/")
 	if strings.Contains(body, "available") || !strings.Contains(body, "current") {
 		t.Errorf("an up-to-date environment is current:\n%s", body)
+	}
+}
+
+func TestPageShowsTheReposLatestTagAgainstWhatIsDeployableHere(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.releases = deploy.Releases{Repo: "v0.3.48", Available: "v0.3.44"}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/")
+	for _, want := range []string{"v0.3.48", "newest tag", "v0.3.44", "behind the repo"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	op.mu.Lock()
+	op.releases = deploy.Releases{Repo: "v0.3.48", Available: "v0.3.48"}
+	op.mu.Unlock()
+	_, body = get(t, ts, "/")
+	if strings.Contains(body, "behind the repo") {
+		t.Error("up to date is not behind")
+	}
+	op.mu.Lock()
+	op.relErr = errors.New("forge down")
+	op.mu.Unlock()
+	code, body := get(t, ts, "/")
+	if code != 200 || !strings.Contains(body, "forge down") {
+		t.Errorf("a forge outage is shown, not fatal (status %d)", code)
 	}
 }
 

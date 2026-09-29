@@ -43,6 +43,7 @@ import (
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/forge"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
@@ -70,6 +71,7 @@ Global flags (before the subcommand):
   -build DIR   build directory for the binary and pinned host keys (default build)
   -store DIR   deploy from this release store instead of building (the appliance)
   -dns DOMAIN  each environment is <env>.DOMAIN in Route 53 (default gobank.drummonds.net; "" for none)
+  -repo URL    gobank on the Forgejo, whose newest tag is reported (default https://git.bytestone.uk/hum3/gobank)
 
 HCLOUD_TOKEN must be set: run via  tp secrets gobank-deploy ...
 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for -dns; without them DNS is skipped.
@@ -83,6 +85,7 @@ func main() {
 	buildDir := global.String("build", "build", "build directory")
 	storeDir := global.String("store", "", "release store to deploy from instead of building")
 	domain := global.String("dns", "gobank.drummonds.net", "Route 53 domain for <env>.DOMAIN hostnames; empty for none")
+	repoURL := global.String("repo", "https://git.bytestone.uk/hum3/gobank", "gobank repo on the Forgejo, for its newest tag; empty for none")
 	global.Usage = usage
 	_ = global.Parse(os.Args[1:])
 	args := global.Args()
@@ -116,6 +119,10 @@ func main() {
 	}
 	cloud := hetzner.New(token)
 	dns := dnsFor(context.Background(), *domain)
+	var repo deploy.Repo
+	if *repoURL != "" {
+		repo = &forge.Repo{URL: *repoURL}
+	}
 	var builder deploy.Builder = &remote.Builder{Src: *src, Dir: *buildDir}
 	upUnavailable := func() string { return remote.CanBuild(*src) }
 	if *storeDir != "" {
@@ -125,6 +132,7 @@ func main() {
 	newDeployer := func(out io.Writer) *deploy.Deployer {
 		return &deploy.Deployer{
 			Cloud: cloud,
+			Repo:  repo,
 			DNS:   dns, Domain: *domain,
 			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts"), Identity: identity},
 			Build: builder,
@@ -200,6 +208,7 @@ func main() {
 		st, err = d.Status(ctx, env)
 		if err == nil {
 			printStatus(env, st)
+			printReleases(ctx, d)
 		}
 	default:
 		usage()
@@ -274,6 +283,21 @@ func confirm(prompt string) bool {
 		return true
 	}
 	return false
+}
+
+// printReleases says where the repo stands against what is deployable here.
+func printReleases(ctx context.Context, d *deploy.Deployer) {
+	rel, err := d.Releases(ctx)
+	if err != nil {
+		fmt.Printf("repo:   %v\n", err)
+	}
+	if rel.Repo != "" {
+		fmt.Printf("repo:   newest tag %s", rel.Repo)
+		if rel.Lagging() {
+			fmt.Printf(" — %s is what can be deployed from here (task push, or pull the checkout)", rel.Available)
+		}
+		fmt.Println()
+	}
 }
 
 func printStatus(env deploy.Environment, st deploy.Status) {

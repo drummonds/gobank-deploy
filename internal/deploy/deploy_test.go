@@ -499,6 +499,54 @@ func TestDownIsIdempotent(t *testing.T) {
 	}
 }
 
+// --- Releases -------------------------------------------------------------------
+
+type fakeRepo struct {
+	tag string
+	err error
+}
+
+func (r *fakeRepo) LatestTag(context.Context) (string, error) { return r.tag, r.err }
+
+// Where versions stand: the newest tag on the repo against what this
+// host would deploy. The store or checkout can lag the repo.
+func TestReleasesComparesTheRepoWithWhatCanBeDeployedFromHere(t *testing.T) {
+	h := newHarness()
+	h.d.Repo = &fakeRepo{tag: "v0.3.48"}
+	h.build.available = "v0.3.44"
+	rel, err := h.d.Releases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Repo != "v0.3.48" || rel.Available != "v0.3.44" || !rel.Lagging() {
+		t.Errorf("releases = %+v", rel)
+	}
+	h.build.available = "v0.3.48"
+	rel, _ = h.d.Releases(context.Background())
+	if rel.Lagging() {
+		t.Errorf("up to date: %+v", rel)
+	}
+	// A checkout past the tag (git describe with a suffix) is not lagging.
+	h.build.available = "v0.3.48-2-gabc1234"
+	if rel, _ = h.d.Releases(context.Background()); rel.Lagging() {
+		t.Errorf("ahead of the tag is not lagging: %+v", rel)
+	}
+}
+
+func TestReleasesWithoutARepoOrWhenItIsDown(t *testing.T) {
+	h := newHarness()
+	h.build.available = "v0.3.44"
+	rel, err := h.d.Releases(context.Background())
+	if err != nil || rel.Repo != "" || rel.Lagging() {
+		t.Errorf("no repo: %+v, %v", rel, err)
+	}
+	h.d.Repo = &fakeRepo{err: errors.New("forge down")}
+	rel, err = h.d.Releases(context.Background())
+	if err == nil || rel.Available != "v0.3.44" {
+		t.Errorf("repo down: still says what is available here: %+v, %v", rel, err)
+	}
+}
+
 // --- Status -------------------------------------------------------------------
 
 // Status compares what is running with what the next up would deploy.

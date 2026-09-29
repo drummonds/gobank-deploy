@@ -46,6 +46,8 @@ type Operator interface {
 	Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
 	// Runs lists recent workflow runs, most recent first.
 	Runs(ctx context.Context, limit int) ([]wf.RunRecord, error)
+	// Releases is the newest tag on the repo against what is deployable here.
+	Releases(ctx context.Context) (deploy.Releases, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
@@ -68,6 +70,10 @@ type DeployerFactory func(out io.Writer) *deploy.Deployer
 
 func (f DeployerFactory) Environments(ctx context.Context) ([]deploy.Environment, error) {
 	return f(io.Discard).Environments(ctx)
+}
+
+func (f DeployerFactory) Releases(ctx context.Context) (deploy.Releases, error) {
+	return f(io.Discard).Releases(ctx)
 }
 
 func (f DeployerFactory) Status(ctx context.Context, env deploy.Environment) (deploy.Status, error) {
@@ -265,10 +271,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			runs = append(runs, runView{Type: string(rec.WorkflowType), Key: rec.Key, Status: string(rec.Status), Started: rec.StartedAt.Local().Format("15:04 Mon 2 Jan"), Error: rec.Error})
 		}
 	}
+	releases, relErr := s.op.Releases(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.ctrl.RenderTemplate(w, lofigui.TemplateContext{
 		"envs":          views,
 		"runs":          runs,
+		"releases":      releases,
+		"releasesError": relErr,
 		"listError":     listErr,
 		"refresh":       refresh,
 		"version":       s.Version,

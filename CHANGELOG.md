@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-01
+
+ - POST /fetch: gobank's release puts its binaries into the store straight away
+
 ### Added
 
 - `POST /fetch` on the page: fetches gobank's newest release into the

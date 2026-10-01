@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-01
+
+ - Fetch gobank releases from the Forgejo into the store: release gobank, press Redeploy
+
  - The appliance fetches gobank's newest release itself: release gobank, press Redeploy
 
 ### Added

@@ -390,32 +390,48 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	return srv, nil
 }
 
-// fetch is the build stage before a deploy from a store: the repo's newest
-// tag, when the store lacks it, is fetched for every architecture and
-// becomes the store's latest. A release the store already has is left
-// alone, so an older one put back (a rollback) stays the latest. A tag
-// without binaries or a repo out of reach is a notice: the deploy carries
-// what the store has.
+// fetch is the build stage before a deploy from a store: Fetch, with a
+// release that cannot be fetched (a tag without binaries, a repo out of
+// reach) a notice, so the deploy carries what the store has.
 func (d *Deployer) fetch(ctx context.Context) {
 	if d.Repo == nil || d.Store == nil {
 		return
 	}
-	instead := func(format string, args ...any) {
-		d.printf(format+" — deploying %s from the store\n", append(args, d.Build.Available())...)
+	if _, err := d.Fetch(ctx); err != nil {
+		d.printf("%v — deploying %s from the store\n", err, d.Build.Available())
+	}
+}
+
+// ErrNoStore: there is no release store to fetch into (the laptop builds
+// from its checkout instead).
+var ErrNoStore = errors.New("no release store to fetch into")
+
+// Fetch puts the repo's newest tag, when the store lacks it, into the
+// store for every architecture and makes it the latest; it returns the
+// tag. A release the store already has is left alone, so an older one
+// put back (a rollback) stays the latest. Run before a deploy, and on its
+// own after gobank's release.
+func (d *Deployer) Fetch(ctx context.Context) (string, error) {
+	if d.Store == nil {
+		return "", ErrNoStore
+	}
+	if d.Repo == nil {
+		return "", errors.New("no repo to fetch from")
 	}
 	tag, err := d.Repo.LatestTag(ctx)
 	if err != nil {
-		instead("repo: %v", err)
-		return
+		return "", fmt.Errorf("repo: %w", err)
 	}
-	if tag == "" || d.Store.Has(tag) {
-		return
+	if tag == "" {
+		return "", errors.New("the repo has no tags")
+	}
+	if d.Store.Has(tag) {
+		return tag, nil
 	}
 	d.printf("== fetch %s from the repo's release\n", tag)
 	dir, err := os.MkdirTemp("", "gobank-deploy-fetch-")
 	if err != nil {
-		instead("fetch %s: %v", tag, err)
-		return
+		return "", fmt.Errorf("fetch %s: %w", tag, err)
 	}
 	defer os.RemoveAll(dir)
 	binaries := map[string]string{}
@@ -423,20 +439,18 @@ func (d *Deployer) fetch(ctx context.Context) {
 		dst := filepath.Join(dir, "demo-linux-"+goarch)
 		switch err := d.Repo.Download(ctx, tag, goarch, dst); {
 		case errors.Is(err, ErrNoRelease):
-			instead("%s has no built demo for linux/%s on the repo", tag, goarch)
-			return
+			return "", fmt.Errorf("%s has no built demo for linux/%s on the repo: %w", tag, goarch, err)
 		case err != nil:
-			instead("fetch %s: %v", tag, err)
-			return
+			return "", fmt.Errorf("fetch %s: %w", tag, err)
 		}
 		binaries[goarch] = dst
 	}
 	for _, goarch := range Architectures {
 		if err := d.Store.Put(tag, goarch, binaries[goarch]); err != nil {
-			instead("store %s: %v", tag, err)
-			return
+			return "", fmt.Errorf("store %s: %w", tag, err)
 		}
 	}
+	return tag, nil
 }
 
 // appShareWithLocalPostgres is the fraction of the box the app may use

@@ -31,6 +31,9 @@ type fakeOperator struct {
 	runs     []wf.RunRecord
 	releases deploy.Releases
 	relErr   error
+	fetched  string // what Fetch reports fetching
+	fetchErr error
+	fetches  int
 	release  chan struct{}
 	ctxErr   error
 }
@@ -61,6 +64,13 @@ func (f *fakeOperator) Releases(context.Context) (deploy.Releases, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.releases, f.relErr
+}
+
+func (f *fakeOperator) Fetch(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fetches++
+	return f.fetched, f.fetchErr
 }
 
 func (f *fakeOperator) Runs(context.Context, int) ([]wf.RunRecord, error) {
@@ -573,4 +583,40 @@ func TestWithoutABuilderOnlyStatusAndDownAreOffered(t *testing.T) {
 		t.Errorf("down is still allowed: status %d", code)
 	}
 	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.downs) == 1 })
+}
+
+// POST /fetch is the release's post_release step: it fetches the repo's
+// newest release into the store and says which, or fails visibly so the
+// release prints a warning.
+func TestFetchEndpointFetchesTheNewestReleaseIntoTheStore(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.fetched = "v0.3.52"
+
+	resp, err := http.Post(ts.URL+"/fetch", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "v0.3.52") {
+		t.Errorf("status %d, body %q", resp.StatusCode, body)
+	}
+	if op.fetches != 1 {
+		t.Errorf("fetches = %d", op.fetches)
+	}
+}
+
+func TestFetchEndpointReportsAFailedFetch(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.fetchErr = errors.New("v0.3.52 has no built demo")
+
+	resp, err := http.Post(ts.URL+"/fetch", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "no built demo") {
+		t.Errorf("status %d, body %q", resp.StatusCode, body)
+	}
 }

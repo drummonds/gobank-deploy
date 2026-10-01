@@ -665,6 +665,76 @@ func TestUpWithoutAStoreDoesNotFetch(t *testing.T) {
 	}
 }
 
+// Fetch, on its own (after the repo's release), puts the newest release
+// into the store and makes it the latest, and says which it was.
+func TestFetchPutsTheReposNewestReleaseIntoTheStore(t *testing.T) {
+	h := newHarness()
+	st := h.withStore()
+	h.d.Repo = &fakeRepo{tag: "v0.3.48", built: true}
+
+	tag, err := h.d.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v0.3.48" {
+		t.Errorf("tag = %q", tag)
+	}
+	want := []string{"v0.3.48 amd64 v0.3.48 amd64", "v0.3.48 arm64 v0.3.48 arm64"}
+	if !slices.Equal(st.puts, want) {
+		t.Errorf("puts = %v, want %v", st.puts, want)
+	}
+}
+
+// Fetching a release the store already has is not an error: it is there.
+func TestFetchOfAReleaseTheStoreHasDoesNothing(t *testing.T) {
+	h := newHarness()
+	st := h.withStore()
+	st.has["v0.3.48"] = true
+	repo := &fakeRepo{tag: "v0.3.48", built: true}
+	h.d.Repo = repo
+
+	tag, err := h.d.Fetch(context.Background())
+	if err != nil || tag != "v0.3.48" {
+		t.Errorf("Fetch = %q, %v", tag, err)
+	}
+	if len(repo.downloads) != 0 || len(st.puts) != 0 {
+		t.Errorf("downloads = %v, puts = %v", repo.downloads, st.puts)
+	}
+}
+
+// Asked for directly, a release that cannot be fetched is a failure, so
+// whoever asked (the release's post_release step) hears of it.
+func TestFetchThatCannotFetchFails(t *testing.T) {
+	for name, tc := range map[string]struct {
+		repo *fakeRepo
+		is   error
+	}{
+		"tag without binaries": {&fakeRepo{tag: "v0.3.48"}, ErrNoRelease},
+		"repo down":            {&fakeRepo{tag: "v0.3.48", err: errors.New("forge down")}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness()
+			st := h.withStore()
+			h.d.Repo = tc.repo
+			_, err := h.d.Fetch(context.Background())
+			if err == nil || (tc.is != nil && !errors.Is(err, tc.is)) {
+				t.Errorf("err = %v, want %v", err, tc.is)
+			}
+			if len(st.puts) != 0 {
+				t.Errorf("puts = %v", st.puts)
+			}
+		})
+	}
+}
+
+func TestFetchWithoutAStoreFails(t *testing.T) {
+	h := newHarness()
+	h.d.Repo = &fakeRepo{tag: "v0.3.48", built: true}
+	if _, err := h.d.Fetch(context.Background()); !errors.Is(err, ErrNoStore) {
+		t.Errorf("err = %v, want ErrNoStore", err)
+	}
+}
+
 // Releases says whether the next up fetches a lagging release itself.
 func TestReleasesSaysWhetherTheNextUpFetches(t *testing.T) {
 	h := newHarness()

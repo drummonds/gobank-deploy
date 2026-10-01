@@ -40,7 +40,7 @@ forgejo.deploy -> hydrogen.ui: gok update
 laptop.checkout -> laptop.cli: go build cmd/demo\n(CGO off, amd64 + arm64)
 laptop.cli -> laptop.store: build
 laptop.store -> hydrogen.perm: task push\n(unbuilt release, or rollback)
-forgejo.release -> hydrogen.perm: Redeploy: fetch\nthe newest tag
+forgejo.release -> hydrogen.perm: fetch the newest tag\n(release post_release: POST /fetch;\nelse at Create / Redeploy)
 hydrogen.perm -> hydrogen.ui: latest
 laptop.cli -> server: up: scp + restart
 hydrogen.ui -> server: Redeploy: scp + restart

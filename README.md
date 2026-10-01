@@ -57,9 +57,12 @@ appliance cannot build `cmd/demo`, so it deploys from a **release store**
 runs goreleaser (the **build stage**, `.goreleaser.yaml` in gobank) and
 attaches `demo-linux-amd64` and `demo-linux-arm64` to the release of the
 tag, and before every Create or Redeploy the page fetches the newest tag's
-binaries into the store when it lacks them. So a new gobank version reaches
-an environment with nothing else released or updated: release gobank, press
-Redeploy. A tag without binaries (from before the build stage) or a Forgejo
+binaries into the store when it lacks them. gobank's release also tells the
+page straight away: its `post_release` step (`task deploy:fetch`) posts to
+`/fetch`, which fetches the newest release into the store now and answers
+with its tag, or an error status the release prints as a warning. So a new
+gobank version reaches an environment with nothing else released or
+updated: release gobank, press Redeploy. A tag without binaries (from before the build stage) or a Forgejo
 out of reach is a notice in the job log, and the deploy carries what the
 store already has.
 

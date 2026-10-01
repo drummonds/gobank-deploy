@@ -100,16 +100,23 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst+".tmp", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	// A temporary file of its own: a fetch after a release and one before a
+	// deploy can put the same binary at once.
+	out, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(out.Name())
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Chmod(0o755); err != nil {
 		out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Rename(dst+".tmp", dst)
+	return os.Rename(out.Name(), dst)
 }

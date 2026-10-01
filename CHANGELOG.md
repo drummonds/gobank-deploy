@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /fetch` on the page: fetches gobank's newest release into the
+  store now, for gobank's `tp release` to call as its `post_release` step,
+  so the page shows the new version as deployable without a deploy first.
+  Answers with the tag, or 502 with why it could not fetch.
+
+### Fixed
+
+- Two puts of the same release into the store at once (a fetch after a
+  release and one before a deploy) no longer share a temporary file.
+
 ## [0.1.6] - 2026-10-01
 
  - Fetch gobank releases from the Forgejo into the store: release gobank, press Redeploy

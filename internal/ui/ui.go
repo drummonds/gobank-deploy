@@ -48,6 +48,8 @@ type Operator interface {
 	Runs(ctx context.Context, limit int) ([]wf.RunRecord, error)
 	// Releases is the newest tag on the repo against what is deployable here.
 	Releases(ctx context.Context) (deploy.Releases, error)
+	// Fetch puts the repo's newest release into the store, returning its tag.
+	Fetch(ctx context.Context) (string, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
@@ -74,6 +76,10 @@ func (f DeployerFactory) Environments(ctx context.Context) ([]deploy.Environment
 
 func (f DeployerFactory) Releases(ctx context.Context) (deploy.Releases, error) {
 	return f(io.Discard).Releases(ctx)
+}
+
+func (f DeployerFactory) Fetch(ctx context.Context) (string, error) {
+	return f(io.Discard).Fetch(ctx)
 }
 
 func (f DeployerFactory) Status(ctx context.Context, env deploy.Environment) (deploy.Status, error) {
@@ -191,6 +197,7 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("POST /env/{env}/redeploy", s.action("redeploy"))
 	s.mux.HandleFunc("POST /env/{env}/down", s.action("down"))
 	s.mux.HandleFunc("POST /env/{env}/cancel", s.cancel)
+	s.mux.HandleFunc("POST /fetch", s.fetch)
 	s.mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
 	s.mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	return s, nil
@@ -460,4 +467,16 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 		j.cancel()
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// fetch is gobank's release telling the page its release is built: the
+// release is fetched into the store now rather than at the next deploy.
+// A failure is an error status, so the release's post_release step warns.
+func (s *Server) fetch(w http.ResponseWriter, r *http.Request) {
+	tag, err := s.op.Fetch(r.Context())
+	if err != nil {
+		http.Error(w, "fetch: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	fmt.Fprintf(w, "%s is in the store\n", tag)
 }

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-02
+
+ - App password per environment: up labels it, status and ui show it
+
 ### Added
 - App password (story 1g). `up` gives each environment a 16-character
   password, kept on the server's `app-password` label so redeploys reuse

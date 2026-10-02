@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-02
+
+ - Gen update
+
 ### Added
 - The ui's navbar shows a small analogue clock set at render time, so the
   second hand jumps round on each poll (every 3s while a job runs, 15s

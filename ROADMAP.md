@@ -35,6 +35,14 @@ inside the box first; expand/contract migrations through gobank-db.
       the Forgejo release; `up` from a store fetches the newest tag's
       binaries into it first. A new gobank version needs no gobank-deploy
       release or hydrogen update
+- [ ] Story 1g — App password: the demo's customer BFF (`/v1/` on the
+      demo's port, gobank ADR-0002 stage 1) refuses every login until
+      `GOBANK_APP_PASSWORD` is set. `up` generates one per environment and
+      writes it beside `GOBANK_MEMORY_LIMIT`; `status` and the ui show it,
+      so a tester can log the app in. Per-environment generation rather
+      than one secret in gokrazy's secrets: nothing committed, nothing
+      shared between environments. It is a demo password for simulated
+      customers, not a credential store — that is gobank's stage 2
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

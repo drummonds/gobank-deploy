@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The ui's navbar shows a small analogue clock set at render time, so the
+  second hand jumps round on each poll (every 3s while a job runs, 15s
+  idle) and the page is visibly live.
+
 ## [0.3.0] - 2026-10-02
 
  - App password per environment: up labels it, status and ui show it

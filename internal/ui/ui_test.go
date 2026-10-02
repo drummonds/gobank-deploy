@@ -620,3 +620,25 @@ func TestFetchEndpointReportsAFailedFetch(t *testing.T) {
 		t.Errorf("status %d, body %q", resp.StatusCode, body)
 	}
 }
+
+func TestClockHandsPointAtTheTime(t *testing.T) {
+	at := time.Date(2026, 10, 2, 10, 8, 30, 0, time.UTC)
+	h := clockHandsAt(at)
+	if h.Hour != 304.25 || h.Minute != 51 || h.Second != 180 {
+		t.Errorf("hands at 10:08:30 = %+v, want hour 304.25 minute 51 second 180", h)
+	}
+}
+
+func TestPageShowsAClockSetToTheRenderTime(t *testing.T) {
+	at := time.Date(2026, 10, 2, 10, 8, 30, 0, time.UTC)
+	ts, _ := newTestServerWith(t, func(s *Server) { s.Now = func() time.Time { return at } })
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, `class="clock"`) {
+		t.Fatal("page should show a clock")
+	}
+	for _, want := range []string{`rotate(304.25 `, `rotate(51 `, `rotate(180 `} {
+		if !strings.Contains(body, want) {
+			t.Errorf("clock hands missing %q", want)
+		}
+	}
+}

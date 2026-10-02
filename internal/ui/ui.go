@@ -100,6 +100,20 @@ const (
 	refreshWorking = 3
 )
 
+// clockHands is where an analogue clock's hands point at t, in degrees
+// clockwise from twelve. The page redraws the clock on every poll, so the
+// second hand jumping round shows the page is live and how often it polls.
+type clockHands struct{ Hour, Minute, Second float64 }
+
+func clockHandsAt(t time.Time) clockHands {
+	h, m, sec := t.Clock()
+	return clockHands{
+		Hour:   float64(h%12)*30 + float64(m)*0.5 + float64(sec)/120,
+		Minute: float64(m)*6 + float64(sec)*0.1,
+		Second: float64(sec) * 6,
+	}
+}
+
 type job struct {
 	Action  string
 	Started time.Time
@@ -169,6 +183,8 @@ type Server struct {
 	// create / redeploy requests are refused. Asked on every request, so a
 	// store that fills up later is noticed without a restart.
 	UpUnavailable func() string
+	// Now is the time the page shows on its clock; nil means time.Now.
+	Now func() time.Time
 
 	mu   sync.Mutex
 	jobs map[string]*job // latest job per environment
@@ -287,9 +303,17 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		"releasesError": relErr,
 		"listError":     listErr,
 		"refresh":       refresh,
+		"clock":         clockHandsAt(s.now()),
 		"version":       s.Version,
 		"upUnavailable": s.upUnavailable(),
 	})
+}
+
+func (s *Server) now() time.Time {
+	if s.Now == nil {
+		return time.Now()
+	}
+	return s.Now()
 }
 
 func (s *Server) upUnavailable() string {

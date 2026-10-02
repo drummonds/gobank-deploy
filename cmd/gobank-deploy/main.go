@@ -340,7 +340,7 @@ func printStatus(env deploy.Environment, st deploy.Status) {
 		fmt.Println("state:  NOT answering (booting? ssh in and check: journalctl -u gobank-demo)")
 	}
 	if st.AppPassword != "" {
-		fmt.Printf("app:    any customer ID, password %s (BFF under %s/v1/)\n", st.AppPassword, st.URL)
+		fmt.Printf("app:    any customer ID, password %s (BFF under %sv1/)\n", st.AppPassword, strings.TrimSuffix(st.URL, "/")+"/")
 	}
 	fmt.Printf("note:   server bills until deleted — tp secrets gobank-deploy down %s\n", env.Name)
 }

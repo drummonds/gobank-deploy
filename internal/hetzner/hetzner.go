@@ -4,6 +4,7 @@ package hetzner
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
@@ -27,6 +28,23 @@ func (h *Cloud) Server(ctx context.Context, name string) (*deploy.Server, error)
 		return nil, err
 	}
 	return toServer(s), nil
+}
+
+// SetLabels merges labels into the server's. The API replaces the whole
+// set, so the current labels are read first.
+func (h *Cloud) SetLabels(ctx context.Context, name string, labels map[string]string) error {
+	s, _, err := h.c.Server.GetByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		return fmt.Errorf("no server %s", name)
+	}
+	merged := make(map[string]string, len(s.Labels)+len(labels))
+	maps.Copy(merged, s.Labels)
+	maps.Copy(merged, labels)
+	_, _, err = h.c.Server.Update(ctx, s, hcloud.ServerUpdateOpts{Labels: merged})
+	return err
 }
 
 func (h *Cloud) Servers(ctx context.Context) ([]*deploy.Server, error) {

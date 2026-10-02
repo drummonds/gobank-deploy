@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- App password (story 1g). `up` gives each environment a 16-character
+  password, kept on the server's `app-password` label so redeploys reuse
+  it and a server from before this release gets one on its first
+  redeploy. The install writes it as `GOBANK_APP_PASSWORD` in
+  `/etc/gobank/deploy.env`, so the demo's customer BFF (gobank ADR-0002
+  stage 1, `/v1/` on the demo's port) accepts logins; `status` and the ui
+  show it. `Cloud` gains `SetLabels`.
+
 ## [0.2.0] - 2026-10-01
 
  - POST /fetch: gobank's release puts its binaries into the store straight away

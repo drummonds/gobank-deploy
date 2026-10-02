@@ -35,7 +35,7 @@ inside the box first; expand/contract migrations through gobank-db.
       the Forgejo release; `up` from a store fetches the newest tag's
       binaries into it first. A new gobank version needs no gobank-deploy
       release or hydrogen update
-- [ ] Story 1g — App password: the demo's customer BFF (`/v1/` on the
+- [x] (unreleased) Story 1g — App password: the demo's customer BFF (`/v1/` on the
       demo's port, gobank ADR-0002 stage 1) refuses every login until
       `GOBANK_APP_PASSWORD` is set. `up` generates one per environment and
       writes it beside `GOBANK_MEMORY_LIMIT`; `status` and the ui show it,

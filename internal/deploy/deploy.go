@@ -6,6 +6,7 @@ package deploy
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -53,6 +54,37 @@ const (
 	expiresLayout = "20060102T150405Z0700"
 )
 
+// appPasswordLabel carries the environment's app password: the one
+// password every simulated customer logs in to the demo's BFF with
+// (GOBANK_APP_PASSWORD). It lives on the server so redeploys keep it and
+// status can show it without ssh; the cloud token already gives root on
+// the box, so the label adds no exposure.
+const appPasswordLabel = "app-password"
+
+// AppPassword is the environment's app password, or "" before one is set.
+func (s *Server) AppPassword() string { return s.Labels[appPasswordLabel] }
+
+// appPasswordAlphabet keeps passwords label-safe and easy to type on a phone.
+const appPasswordAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// newAppPassword is 16 characters from appPasswordAlphabet, uniformly.
+func newAppPassword() string {
+	out := make([]byte, 0, 16)
+	buf := make([]byte, 32)
+	for len(out) < 16 {
+		if _, err := rand.Read(buf); err != nil {
+			panic(err) // the OS random source is gone; nothing sensible to do
+		}
+		for _, b := range buf {
+			// Reject the top of the byte range so every letter is equally likely.
+			if b < 252 && len(out) < 16 {
+				out = append(out, appPasswordAlphabet[int(b)%len(appPasswordAlphabet)])
+			}
+		}
+	}
+	return string(out)
+}
+
 // Expires is when the server is to be removed, or zero for a standing one.
 func (s *Server) Expires() time.Time {
 	t, err := time.Parse(expiresLayout, s.Labels[expiresLabel])
@@ -99,6 +131,8 @@ type Cloud interface {
 	SSHKeys(ctx context.Context) ([]string, error)
 	// Servers lists every server in the project.
 	Servers(ctx context.Context) ([]*Server, error)
+	// SetLabels merges labels into the named server's labels.
+	SetLabels(ctx context.Context, name string, labels map[string]string) error
 }
 
 // Host is a root shell on a server.
@@ -239,6 +273,9 @@ type Status struct {
 	Serving   bool
 	Version   string // what the service says it is running; "" when unknown
 	Available string // what the next up would deploy; "" when unknown
+	// AppPassword logs any customer in to the demo's BFF; "" before the
+	// first up since the story that introduced it.
+	AppPassword string
 }
 
 // Behind: the next up would deploy a different release from the one running.
@@ -343,7 +380,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 		if !o.Create {
 			return nil, fmt.Errorf("%s: %w", name, ErrNeedsCreate)
 		}
-		srv, err = d.create(ctx, o)
+		srv, err = d.create(ctx, o, newAppPassword())
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +414,15 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if err := host.Put(ctx, rel.Binary, binaryPath+".new"); err != nil {
 		return nil, fmt.Errorf("copy binary: %w", err)
 	}
-	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB))); err != nil {
+	// A server from before app passwords gets one on its first redeploy.
+	appPassword := srv.AppPassword()
+	if appPassword == "" {
+		appPassword = newAppPassword()
+		if err := d.Cloud.SetLabels(ctx, name, map[string]string{appPasswordLabel: appPassword}); err != nil {
+			return nil, fmt.Errorf("label %s with its app password: %w", name, err)
+		}
+	}
+	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB), appPassword)); err != nil {
 		return nil, fmt.Errorf("install: %w", err)
 	}
 
@@ -468,12 +513,16 @@ func AppMemoryLimit(ramGB float64) string {
 }
 
 // installScript installs the binary, writes the deployment's environment
-// (sizing that changes per box or per deploy, as opposed to what cloud-init
-// fixes at first boot), makes the unit read it, and restarts.
-func installScript(memoryLimit string) string {
+// (what changes per box or per deploy — sizing, the app password — as
+// opposed to what cloud-init fixes at first boot), makes the unit read it,
+// and restarts.
+func installScript(memoryLimit, appPassword string) string {
 	env := ""
 	if memoryLimit != "" {
 		env = "GOBANK_MEMORY_LIMIT=" + memoryLimit + "\n"
+	}
+	if appPassword != "" {
+		env += "GOBANK_APP_PASSWORD=" + appPassword + "\n"
 	}
 	return `set -e
 install -m 0755 -o gobank -g gobank /opt/gobank/demo.new /opt/gobank/demo
@@ -488,7 +537,7 @@ systemctl restart gobank-demo
 `
 }
 
-func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
+func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) (*Server, error) {
 	name := o.Env.ServerName()
 	keys, err := d.Cloud.SSHKeys(ctx)
 	if err != nil {
@@ -526,7 +575,7 @@ func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
 		Firewall: name,
 		SSHKeys:  keys,
 		UserData: cloudInit,
-		Labels:   labels(o),
+		Labels:   labels(o, appPassword),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
@@ -534,8 +583,8 @@ func (d *Deployer) create(ctx context.Context, o UpOptions) (*Server, error) {
 	return srv, nil
 }
 
-func labels(o UpOptions) map[string]string {
-	l := map[string]string{"project": "gobank", "environment": o.Env.Name}
+func labels(o UpOptions, appPassword string) map[string]string {
+	l := map[string]string{"project": "gobank", "environment": o.Env.Name, appPasswordLabel: appPassword}
 	if !o.Expires.IsZero() {
 		l[expiresLabel] = o.Expires.UTC().Format(expiresLayout)
 	}
@@ -650,5 +699,6 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	return Status{
 		Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv, true),
 		Serving: serving, Version: version, Available: d.Build.Available(),
+		AppPassword: srv.AppPassword(),
 	}, nil
 }

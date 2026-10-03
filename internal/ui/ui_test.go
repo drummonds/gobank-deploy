@@ -178,6 +178,21 @@ func post(t *testing.T, ts *httptest.Server, path string, form url.Values) int {
 	return resp.StatusCode
 }
 
+// hxPost posts as htmx does, asking for the fragment back.
+func hxPost(t *testing.T, ts *httptest.Server, path string, form url.Values) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", ts.URL+path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -293,8 +308,8 @@ func TestCreateStartsUpAndShowsProgressThenResult(t *testing.T) {
 	if !strings.Contains(body, `action="/env/preprod/cancel"`) {
 		t.Error("a running job offers cancel")
 	}
-	if !strings.Contains(body, `http-equiv="refresh"`) {
-		t.Error("page should poll while a job runs")
+	if !strings.Contains(body, `hx-trigger="every 3s`) {
+		t.Error("page should poll fast while a job runs")
 	}
 
 	close(op.release)
@@ -640,5 +655,82 @@ func TestPageShowsAClockSetToTheRenderTime(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("clock hands missing %q", want)
 		}
+	}
+}
+
+func TestPageIsAShellAroundAPolledFragment(t *testing.T) {
+	ts, _ := newTestServer(t)
+	_, page := get(t, ts, "/")
+	for _, want := range []string{`src="/assets/htmx.min.js"`, `id="envs"`, `hx-get="/fragment"`, `hx-trigger="every 15s`, `name="name"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	if strings.Contains(page, `http-equiv="refresh"`) {
+		t.Error("the page must not reload itself")
+	}
+	code, frag := get(t, ts, "/fragment")
+	if code != 200 {
+		t.Fatalf("fragment status %d", code)
+	}
+	for _, want := range []string{`id="envs"`, "prod", "Serving", `hx-trigger="every 15s`, `hx-swap-oob`, `class="clock"`} {
+		if !strings.Contains(frag, want) {
+			t.Errorf("fragment missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"<html", `name="name"`} {
+		if strings.Contains(frag, unwanted) {
+			t.Errorf("fragment should not contain %q", unwanted)
+		}
+	}
+}
+
+func TestPollingPausesWhileAFormHasFocus(t *testing.T) {
+	ts, _ := newTestServer(t)
+	_, frag := get(t, ts, "/fragment")
+	if !strings.Contains(frag, `hx-trigger="every 15s [!document.activeElement.closest('form')]"`) {
+		t.Errorf("fragment should not poll while a form is being filled in:\n%s", frag)
+	}
+}
+
+func TestHtmxActionReturnsTheFragmentInsteadOfRedirecting(t *testing.T) {
+	ts, op := newTestServer(t)
+	code, body := hxPost(t, ts, "/env/preprod/create", url.Values{"scale": {"medium"}})
+	if code != 200 {
+		t.Fatalf("status %d, want the fragment", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.ups) == 1 })
+	for _, want := range []string{`id="envs"`, "Working", `hx-trigger="every 3s`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fragment after create missing %q", want)
+		}
+	}
+	if strings.Contains(body, "<html") {
+		t.Error("an htmx post gets the fragment, not the page")
+	}
+}
+
+func TestHtmxActionErrorShowsInTheFragment(t *testing.T) {
+	ts, _ := newTestServer(t)
+	code, body := hxPost(t, ts, "/env/prod/down", url.Values{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{`id="envs"`, "tick the confirmation", "prod"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fragment after a refused action missing %q", want)
+		}
+	}
+	_, after := get(t, ts, "/fragment")
+	if strings.Contains(after, "tick the confirmation") {
+		t.Error("the error belongs to the refused request, not to later polls")
+	}
+}
+
+func TestHtmxIsEmbedded(t *testing.T) {
+	ts, _ := newTestServer(t)
+	code, body := get(t, ts, "/assets/htmx.min.js")
+	if code != 200 || !strings.HasPrefix(body, "var htmx=") {
+		t.Errorf("htmx should be served from the binary: status %d, body %.40q", code, body)
 	}
 }

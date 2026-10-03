@@ -6,7 +6,8 @@
   <title>gobank environments</title>
   <link rel="stylesheet" href="/assets/bulma.min.css">
   <link rel="icon" href="/favicon.ico">
-  <meta http-equiv="refresh" content="{{.refresh}}">
+  <script src="/assets/htmx.min.js"></script>
+  <meta name="htmx-config" content='{"responseHandling":[{"code":".*","swap":true}]}'>
 </head>
 <body>
   <nav class="navbar is-primary" role="navigation" aria-label="main navigation">
@@ -15,96 +16,17 @@
       <a class="navbar-item" href="/about">About</a>
     </div>
     <div class="navbar-end">
-      <div class="navbar-item" title="page refreshes every {{.refresh}}s">
-        <svg class="clock" width="28" height="28" viewBox="-50 -50 100 100" aria-label="refreshed at render time" role="img">
-          <circle r="46" fill="white" stroke="#363636" stroke-width="3"/>
-          <line y2="-26" stroke="#363636" stroke-width="5" stroke-linecap="round" transform="rotate({{.clock.Hour}} 0 0)"/>
-          <line y2="-38" stroke="#363636" stroke-width="3" stroke-linecap="round" transform="rotate({{.clock.Minute}} 0 0)"/>
-          <line y1="8" y2="-42" stroke="#e53e3e" stroke-width="2" stroke-linecap="round" transform="rotate({{.clock.Second}} 0 0)"/>
-          <circle r="3" fill="#363636"/>
-        </svg>
-      </div>
+      <div class="navbar-item">{{template "clock" .}}</div>
       <div class="navbar-item"><span class="tag">{{.version}}</span></div>
     </div>
   </nav>
 
   <section class="section">
     <div class="container">
-      <p class="is-size-7 mb-3">
-        {{if .releases.Repo}}gobank newest tag <strong>{{.releases.Repo}}</strong>{{end}}
-        {{if .releases.Available}}· deployable from here <strong>{{.releases.Available}}</strong>
-          {{if .releases.Lagging}}<span class="tag is-warning">behind the repo</span> <span class="has-text-grey">{{if .releases.Fetches}}fetched by the next deploy{{else}}push a newer release to this store, or pull the checkout{{end}}</span>{{end}}
-        {{end}}
-        {{if .releasesError}}<span class="has-text-danger">repo: {{.releasesError}}</span>{{end}}
-      </p>
-      <table class="table is-fullwidth is-striped">
-        <thead>
-          <tr><th>Environment</th><th>State</th><th>Version</th><th>Server</th><th>Address</th><th>Controls</th></tr>
-        </thead>
-        <tbody>
-        {{range .envs}}
-          <tr>
-            <td class="has-text-weight-bold">{{.Name}}</td>
-            <td>
-              {{if .Job}}{{if .Job.Running}}<span class="tag is-warning">Working: {{.Job.Action}}</span>
-              {{else if .Job.Err}}<span class="tag is-danger">Failed: {{.Job.Action}}</span>
-              {{else}}<span class="tag is-info">Finished: {{.Job.Action}}</span>{{end}}<br>{{end}}
-              {{if .Error}}<span class="tag is-danger">Error</span> <small>{{.Error}}</small>
-              {{else if not .Server}}<span class="tag is-light">Not provisioned</span> <small>no billing</small>
-              {{else if .Serving}}<span class="tag is-success">Serving</span>
-              {{else}}<span class="tag is-danger">Not answering</span> <small>booting?</small>{{end}}
-              {{if .Removed}}<br><small class="has-text-grey">removed at {{.Removed}}</small>{{end}}
-            </td>
-            <td>
-              {{if .Server}}{{if .Version}}{{.Version}}{{else}}<span class="has-text-grey">unknown</span>{{end}}
-                {{if .Behind}}<br><span class="tag is-warning">{{.Available}} available</span>
-                {{else if .Available}}<br><span class="tag is-light">current</span>{{end}}
-              {{else if .Available}}<span class="has-text-grey">{{.Available}} available</span>{{end}}
-            </td>
-            <td>{{if .Server}}{{.Server.Type}} {{.Server.Status}} {{.Server.Location}}{{end}}</td>
-            <td>{{if .Server}}<a href="{{.URL}}">{{.URL}}</a><br><small>{{if .Host}}{{.Host}} → {{end}}{{.Server.IP}}</small>{{if .AppPassword}}<br><small>app password <code>{{.AppPassword}}</code></small>{{end}}{{end}}</td>
-            <td>
-              {{if and .Job .Job.Running}}
-                <form method="post" action="/env/{{.Name}}/cancel"><button class="button is-small is-warning">Cancel</button></form>
-              {{else if .Server}}
-                <div class="buttons are-small">
-                  {{if not $.upUnavailable}}<form method="post" action="/env/{{.Name}}/redeploy"><button class="button is-small is-link">Redeploy</button></form>{{end}}
-                  <form method="post" action="/env/{{.Name}}/down" class="ml-2">
-                    <label class="checkbox is-size-7"><input type="checkbox" name="confirm" required> delete server and database</label>
-                    <button class="button is-small is-danger">Down</button>
-                  </form>
-                </div>
-              {{else if $.upUnavailable}}
-                <small class="has-text-grey">create from a machine that can build</small>
-              {{else}}
-                <form method="post" action="/env/{{.Name}}/create">
-                  <div class="field has-addons">
-                    <div class="control"><div class="select is-small"><select name="scale">
-                      <option value="small">small (cx23)</option>
-                      <option value="medium">medium (cx33)</option>
-                      <option value="large">large (cx53)</option>
-                      <option value="xl">xl (ccx33)</option>
-                    </select></div></div>
-                    <div class="control"><div class="select is-small"><select name="remove">
-                      <option value="keep">keep</option>
-                      <option value="1h">remove after 1h</option>
-                      <option value="4h">remove after 4h</option>
-                      <option value="24h">remove after 24h</option>
-                    </select></div></div>
-                    <div class="control"><button class="button is-small is-success">Create</button></div>
-                  </div>
-                  <small class="has-text-grey">starts billing</small>
-                </form>
-              {{end}}
-            </td>
-          </tr>
-        {{end}}
-        </tbody>
-      </table>
-      {{if .listError}}<p class="has-text-danger is-size-7">Could not list the project's servers: {{.listError}}. Only configured environments are shown.</p>{{end}}
+      {{template "envs" .}}
 
       {{if not .upUnavailable}}
-      <form method="post" action="/env" class="mb-5">
+      <form method="post" action="/env" hx-post="/env" hx-target="#envs" hx-swap="outerHTML" hx-on::after-request="if (event.detail.successful) this.reset()" class="mb-5">
         <label class="label is-small">New environment</label>
         <div class="field has-addons">
           <div class="control"><input class="input is-small" type="text" name="name" placeholder="demo" pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" required title="lower-case letters, digits and hyphens"></div>
@@ -125,25 +47,7 @@
         <small class="has-text-grey">starts billing; the environment is listed while it exists. "Remove after" runs the demo workflow: the server carries its removal time, so it goes even if this page restarts.</small>
       </form>
       {{end}}
-
-      {{range .envs}}{{if .Job}}
-      <div class="box">
-        <p class="has-text-weight-bold">{{.Name}}: {{.Job.Action}} started {{.Job.Started}}
-          {{if .Job.Err}}<span class="has-text-danger">— {{.Job.Err}}</span>{{end}}</p>
-        <pre>{{.Job.Log}}</pre>
-      </div>
-      {{end}}{{end}}
-      {{if .runs}}
-      <h2 class="title is-5">Workflow runs</h2>
-      <table class="table is-fullwidth is-narrow is-size-7">
-        <thead><tr><th>Workflow</th><th>Instance</th><th>State</th><th>Started</th><th>Error</th></tr></thead>
-        <tbody>
-        {{range .runs}}<tr><td>{{.Type}}</td><td>{{.Key}}</td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
-        </tbody>
-      </table>
-      {{end}}
       {{if .upUnavailable}}<p class="is-size-7 has-text-grey">Status and Down only: {{.upUnavailable}}.</p>{{end}}
-      <p class="is-size-7 has-text-grey">Page refreshes every {{.refresh}}s. Servers bill until deleted.</p>
     </div>
   </section>
 </body>

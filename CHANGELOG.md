@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- ui on htmx (story 1h). The page no longer reloads itself: the
+  environment table, job logs and clock are a fragment at `/fragment`,
+  polled at the same 3s / 15s rate and paused while a form has focus, so
+  a Create click or a half-chosen scale is no longer thrown away by a
+  refresh. Buttons post over htmx and swap the fragment back; a refused
+  action shows its message above the table instead of a bare error page.
+  Without JavaScript the page works as before. htmx 2.0.4 is embedded
+  in the binary
+
 ## [0.4.0] - 2026-10-02
 
  - Gen update

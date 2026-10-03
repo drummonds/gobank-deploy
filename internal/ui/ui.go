@@ -9,6 +9,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"io/fs"
 	"net/http"
@@ -173,7 +174,7 @@ type runView struct {
 type Server struct {
 	op      Operator
 	envs    []deploy.Environment // configured: always listed, provisioned or not
-	ctrl    *lofigui.Controller
+	page    *template.Template   // index.html, with the envs fragment and the clock
 	about   *lofigui.Controller
 	mux     *http.ServeMux
 	Version string
@@ -193,7 +194,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	ctrl, err := lofigui.NewControllerFromFS(templateFS, "templates", "index.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html")
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +202,9 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{op: op, envs: envs, ctrl: ctrl, about: about, jobs: map[string]*job{}, mux: http.NewServeMux()}
+	s := &Server{op: op, envs: envs, page: page, about: about, jobs: map[string]*job{}, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /{$}", s.index)
+	s.mux.HandleFunc("GET /fragment", s.fragment)
 	s.mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		s.about.RenderTemplate(w, lofigui.TemplateContext{"version": s.Version})
@@ -267,16 +269,18 @@ func (s *Server) environment(ctx context.Context, name string) (deploy.Environme
 	return deploy.Environment{}, false
 }
 
-func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+// pageData is what the templates see: every environment's state, the
+// recent runs, and how often to poll (fast while a job runs).
+func (s *Server) pageData(ctx context.Context) map[string]any {
 	refresh := refreshIdle
 	var views []envView
-	envs, listErr := s.environments(r.Context())
+	envs, listErr := s.environments(ctx)
 	for _, e := range envs {
 		v := envView{Name: e.Name}
 		if !e.Expires.IsZero() {
 			v.Removed = e.Expires.Local().Format("15:04 Mon 2 Jan")
 		}
-		v.Status, v.Error = s.op.Status(r.Context(), e)
+		v.Status, v.Error = s.op.Status(ctx, e)
 		s.mu.Lock()
 		j := s.jobs[e.Name]
 		s.mu.Unlock()
@@ -289,14 +293,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		views = append(views, v)
 	}
 	var runs []runView
-	if recs, err := s.op.Runs(r.Context(), 20); err == nil {
+	if recs, err := s.op.Runs(ctx, 20); err == nil {
 		for _, rec := range recs {
 			runs = append(runs, runView{Type: string(rec.WorkflowType), Key: rec.Key, Status: string(rec.Status), Started: rec.StartedAt.Local().Format("15:04 Mon 2 Jan"), Error: rec.Error})
 		}
 	}
-	releases, relErr := s.op.Releases(r.Context())
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.ctrl.RenderTemplate(w, lofigui.TemplateContext{
+	releases, relErr := s.op.Releases(ctx)
+	return map[string]any{
 		"envs":          views,
 		"runs":          runs,
 		"releases":      releases,
@@ -306,7 +309,57 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		"clock":         clockHandsAt(s.now()),
 		"version":       s.Version,
 		"upUnavailable": s.upUnavailable(),
-	})
+	}
+}
+
+func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.page.ExecuteTemplate(w, "index.html", s.pageData(r.Context())); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// fragment is what the page polls, and what an htmx action gets back:
+// the environment table and the clock, which swaps out of band.
+func (s *Server) fragment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.writeFragment(w, r, "")
+}
+
+func (s *Server) writeFragment(w http.ResponseWriter, r *http.Request, flash string) {
+	data := s.pageData(r.Context())
+	data["flash"] = flash
+	if err := s.page.ExecuteTemplate(w, "envs", data); err != nil {
+		return
+	}
+	data["oob"] = true
+	s.page.ExecuteTemplate(w, "clock", data)
+}
+
+// fromHtmx is a request made by the page's script, which wants the
+// fragment back; a plain form post wants the redirect or error page.
+func fromHtmx(r *http.Request) bool { return r.Header.Get("HX-Request") == "true" }
+
+// done is how an action ends well: the fragment for htmx, else back to the page.
+func (s *Server) done(w http.ResponseWriter, r *http.Request) {
+	if fromHtmx(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		s.writeFragment(w, r, "")
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// fail is how an action is refused: for htmx the fragment with the
+// message flashed at the top, under the same status, so it shows in place.
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, code int, msg string) {
+	if fromHtmx(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(code)
+		s.writeFragment(w, r, msg)
+		return
+	}
+	http.Error(w, msg, code)
 }
 
 func (s *Server) now() time.Time {
@@ -333,16 +386,16 @@ var envName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 // then on because it has a job, and after that because it has a server.
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	if why := s.upUnavailable(); why != "" {
-		http.Error(w, "create not available here: "+why, http.StatusForbidden)
+		s.fail(w, r, http.StatusForbidden, "create not available here: "+why)
 		return
 	}
 	name := r.FormValue("name")
 	if !envName.MatchString(name) {
-		http.Error(w, fmt.Sprintf("environment name %q: use lower-case letters, digits and hyphens", name), http.StatusBadRequest)
+		s.fail(w, r, http.StatusBadRequest, fmt.Sprintf("environment name %q: use lower-case letters, digits and hyphens", name))
 		return
 	}
 	if _, exists := s.environment(r.Context(), name); exists {
-		http.Error(w, name+": already an environment", http.StatusConflict)
+		s.fail(w, r, http.StatusConflict, name+": already an environment")
 		return
 	}
 	s.startCreate(w, r, deploy.Environment{Name: name})
@@ -369,7 +422,7 @@ func (s *Server) startCreate(w http.ResponseWriter, r *http.Request, env deploy.
 	}
 	ttl, err := removeAfter(r.FormValue("remove"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.fail(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	action := "create"
@@ -382,10 +435,10 @@ func (s *Server) startCreate(w http.ResponseWriter, r *http.Request, env deploy.
 		run = func(ctx context.Context, out io.Writer) error { return s.op.Demo(ctx, env, scale, out) }
 	}
 	if err := s.start(env, action, run); err != nil {
-		http.Error(w, fmt.Sprintf("%s: %v", env.Name, err), http.StatusConflict)
+		s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: %v", env.Name, err))
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	s.done(w, r)
 }
 
 // start registers and runs a job for env unless one is already running.
@@ -418,7 +471,7 @@ func (s *Server) action(name string) http.HandlerFunc {
 			return
 		}
 		if why := s.upUnavailable(); why != "" && name != "down" {
-			http.Error(w, fmt.Sprintf("%s: %s not available here: %s", env.Name, name, why), http.StatusForbidden)
+			s.fail(w, r, http.StatusForbidden, fmt.Sprintf("%s: %s not available here: %s", env.Name, name, why))
 			return
 		}
 		var run func(ctx context.Context, out io.Writer) error
@@ -432,7 +485,7 @@ func (s *Server) action(name string) http.HandlerFunc {
 			}
 		case "down":
 			if r.FormValue("confirm") == "" {
-				http.Error(w, "tick the confirmation to delete the server and its database", http.StatusBadRequest)
+				s.fail(w, r, http.StatusBadRequest, "tick the confirmation to delete the server and its database")
 				return
 			}
 			run = func(ctx context.Context, out io.Writer) error {
@@ -440,10 +493,10 @@ func (s *Server) action(name string) http.HandlerFunc {
 			}
 		}
 		if err := s.start(env, name, run); err != nil {
-			http.Error(w, fmt.Sprintf("%s: %v", env.Name, err), http.StatusConflict)
+			s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: %v", env.Name, err))
 			return
 		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		s.done(w, r)
 	}
 }
 
@@ -490,7 +543,7 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 	if j != nil {
 		j.cancel()
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	s.done(w, r)
 }
 
 // fetch is gobank's release telling the page its release is built: the

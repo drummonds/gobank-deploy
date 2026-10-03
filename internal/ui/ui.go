@@ -49,8 +49,10 @@ type Operator interface {
 	Runs(ctx context.Context, limit int) ([]wf.RunRecord, error)
 	// Releases is the newest tag on the repo against what is deployable here.
 	Releases(ctx context.Context) (deploy.Releases, error)
-	// Fetch puts the repo's newest release into the store, returning its tag.
-	Fetch(ctx context.Context) (string, error)
+	// Fetch puts a release into the store and makes it the next deploy,
+	// returning its tag: the repo's newest when tag is "", else that tag
+	// (a rollback when it is older).
+	Fetch(ctx context.Context, tag string) (string, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
@@ -79,8 +81,8 @@ func (f DeployerFactory) Releases(ctx context.Context) (deploy.Releases, error) 
 	return f(io.Discard).Releases(ctx)
 }
 
-func (f DeployerFactory) Fetch(ctx context.Context) (string, error) {
-	return f(io.Discard).Fetch(ctx)
+func (f DeployerFactory) Fetch(ctx context.Context, tag string) (string, error) {
+	return f(io.Discard).Fetch(ctx, tag)
 }
 
 func (f DeployerFactory) Status(ctx context.Context, env deploy.Environment) (deploy.Status, error) {
@@ -548,11 +550,19 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 
 // fetch is gobank's release telling the page its release is built: the
 // release is fetched into the store now rather than at the next deploy.
-// A failure is an error status, so the release's post_release step warns.
+// With ?tag=vX it is an operator choosing the next deploy: that release,
+// fetched if the store lacks it — the rollback step of gobank's upgrade
+// drill. A failure is an error status, so the release's post_release
+// step warns.
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request) {
-	tag, err := s.op.Fetch(r.Context())
+	want := r.URL.Query().Get("tag")
+	tag, err := s.op.Fetch(r.Context(), want)
 	if err != nil {
 		http.Error(w, "fetch: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if want != "" {
+		fmt.Fprintf(w, "%s is the next deploy\n", tag)
 		return
 	}
 	fmt.Fprintf(w, "%s is in the store\n", tag)

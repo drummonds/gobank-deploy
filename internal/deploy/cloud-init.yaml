@@ -23,6 +23,8 @@ write_files:
       # Per-deploy sizing (GOBANK_MEMORY_LIMIT), written by gobank-deploy.
       EnvironmentFile=-/etc/gobank/deploy.env
       ExecStart=/opt/gobank/demo
+      # The demo finishes the simulated day in progress before it exits.
+      TimeoutStopSec=900
       Restart=on-failure
       RestartSec=2
 

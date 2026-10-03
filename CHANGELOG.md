@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `POST /fetch?tag=vX` (story 1i): makes a named release the next deploy,
+  fetching it into the store if it is not there, so a rollback from
+  hydrogen is a fetch of the previous tag and a Redeploy. `Store.Use`
+  marks a held version the latest.
+- The demo's systemd unit has `TimeoutStopSec=900`, from cloud-init on a
+  fresh server and from the install script on an existing one: the demo
+  finishes the simulated day in progress on SIGTERM, and the default 90s
+  would have killed it mid-day.
+
 ### Changed
 - ui on htmx (story 1h). The page no longer reloads itself: the
   environment table, job logs and clock are a fragment at `/fragment`,

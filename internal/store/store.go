@@ -78,6 +78,15 @@ func (s *Store) Put(version, goarch, binary string) error {
 	return os.WriteFile(s.latestPath(), []byte(version+"\n"), 0o644)
 }
 
+// Use makes a version the store already holds the latest, so the next
+// deploy is that version: a rollback when it is older than the latest.
+func (s *Store) Use(version string) error {
+	if !s.Has(version) {
+		return fmt.Errorf("the store has no %s", version)
+	}
+	return os.WriteFile(s.latestPath(), []byte(version+"\n"), 0o644)
+}
+
 // Build implements deploy.Builder: the latest release's binary for goarch.
 func (s *Store) Build(_ context.Context, goarch string) (deploy.Release, error) {
 	version := s.Latest()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -536,6 +537,7 @@ type fakeRepo struct {
 	tag       string
 	err       error
 	built     bool     // the tag's release carries demo binaries
+	older     []string // earlier tags whose releases also carry binaries
 	downloads []string // "<tag> <goarch>"
 }
 
@@ -545,7 +547,7 @@ func (r *fakeRepo) Download(_ context.Context, tag, goarch, dst string) error {
 	if r.err != nil {
 		return r.err
 	}
-	if !r.built || tag != r.tag {
+	if !r.built || (tag != r.tag && !slices.Contains(r.older, tag)) {
 		return ErrNoRelease
 	}
 	r.downloads = append(r.downloads, tag+" "+goarch)
@@ -557,9 +559,19 @@ type fakeStore struct {
 	fakeBuilder
 	has  map[string]bool
 	puts []string // "<version> <goarch> <binary content>"
+	uses []string // versions made the latest without a put
 }
 
 func (s *fakeStore) Has(version string) bool { return s.has[version] }
+
+func (s *fakeStore) Use(version string) error {
+	if !s.has[version] {
+		return fmt.Errorf("store lacks %s", version)
+	}
+	s.uses = append(s.uses, version)
+	s.available = version
+	return nil
+}
 
 func (s *fakeStore) Put(version, goarch, binary string) error {
 	b, err := os.ReadFile(binary)
@@ -672,7 +684,7 @@ func TestFetchPutsTheReposNewestReleaseIntoTheStore(t *testing.T) {
 	st := h.withStore()
 	h.d.Repo = &fakeRepo{tag: "v0.3.48", built: true}
 
-	tag, err := h.d.Fetch(context.Background())
+	tag, err := h.d.Fetch(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +705,7 @@ func TestFetchOfAReleaseTheStoreHasDoesNothing(t *testing.T) {
 	repo := &fakeRepo{tag: "v0.3.48", built: true}
 	h.d.Repo = repo
 
-	tag, err := h.d.Fetch(context.Background())
+	tag, err := h.d.Fetch(context.Background(), "")
 	if err != nil || tag != "v0.3.48" {
 		t.Errorf("Fetch = %q, %v", tag, err)
 	}
@@ -716,7 +728,7 @@ func TestFetchThatCannotFetchFails(t *testing.T) {
 			h := newHarness()
 			st := h.withStore()
 			h.d.Repo = tc.repo
-			_, err := h.d.Fetch(context.Background())
+			_, err := h.d.Fetch(context.Background(), "")
 			if err == nil || (tc.is != nil && !errors.Is(err, tc.is)) {
 				t.Errorf("err = %v, want %v", err, tc.is)
 			}
@@ -730,7 +742,7 @@ func TestFetchThatCannotFetchFails(t *testing.T) {
 func TestFetchWithoutAStoreFails(t *testing.T) {
 	h := newHarness()
 	h.d.Repo = &fakeRepo{tag: "v0.3.48", built: true}
-	if _, err := h.d.Fetch(context.Background()); !errors.Is(err, ErrNoStore) {
+	if _, err := h.d.Fetch(context.Background(), ""); !errors.Is(err, ErrNoStore) {
 		t.Errorf("err = %v, want ErrNoStore", err)
 	}
 }
@@ -878,5 +890,60 @@ func TestUpOnAServerOfUnknownSizeLeavesTheDefault(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(h.host.runs, "\n"), "GOBANK_MEMORY_LIMIT=") {
 		t.Error("no RAM figure, so no limit should be written")
+	}
+}
+
+// A named tag the store already has becomes the next deploy without a
+// download: the rollback path (ADR-0003 in gobank), from the store.
+func TestFetchOfANamedTagMakesItTheNextDeploy(t *testing.T) {
+	h := newHarness()
+	st := h.withStore()
+	st.has["v0.3.48"] = true
+	st.available = "v0.3.48"
+	repo := &fakeRepo{tag: "v0.3.48", built: true}
+	h.d.Repo = repo
+
+	tag, err := h.d.Fetch(context.Background(), "v0.3.44")
+	if err != nil || tag != "v0.3.44" {
+		t.Fatalf("Fetch = %q, %v", tag, err)
+	}
+	if len(repo.downloads) != 0 || len(st.puts) != 0 {
+		t.Errorf("a release the store has is not fetched again: downloads = %v, puts = %v", repo.downloads, st.puts)
+	}
+	if !slices.Equal(st.uses, []string{"v0.3.44"}) || st.Available() != "v0.3.44" {
+		t.Errorf("uses = %v, available = %s; want v0.3.44 as the next deploy", st.uses, st.Available())
+	}
+}
+
+// A named tag the store lacks is downloaded from the repo's release of
+// that tag, not the newest, and becomes the latest as a put does.
+func TestFetchOfANamedTagTheStoreLacksDownloadsThatTag(t *testing.T) {
+	h := newHarness()
+	st := h.withStore()
+	repo := &fakeRepo{tag: "v0.3.48", built: true, older: []string{"v0.3.47"}}
+	h.d.Repo = repo
+
+	tag, err := h.d.Fetch(context.Background(), "v0.3.47")
+	if err != nil || tag != "v0.3.47" {
+		t.Fatalf("Fetch = %q, %v", tag, err)
+	}
+	want := []string{"v0.3.47 amd64 v0.3.47 amd64", "v0.3.47 arm64 v0.3.47 arm64"}
+	if !slices.Equal(st.puts, want) {
+		t.Errorf("puts = %v, want %v", st.puts, want)
+	}
+}
+
+// The demo finishes the simulated day in progress before it exits, which
+// on the Hetzner box can take minutes; the unit's stop timeout must
+// outlast that or the stop becomes a SIGKILL and the day's writes are
+// lost. Fresh servers get it from cloud-init, existing ones from the
+// install script.
+func TestStopTimeoutOutlastsADay(t *testing.T) {
+	const want = "TimeoutStopSec=900"
+	if !strings.Contains(cloudInit, want) {
+		t.Errorf("cloud-init unit lacks %s", want)
+	}
+	if script := installScript("", ""); !strings.Contains(script, want) || !strings.Contains(script, "grep -q 'TimeoutStopSec=") {
+		t.Errorf("install script does not add %s to an existing unit:\n%s", want, script)
 	}
 }

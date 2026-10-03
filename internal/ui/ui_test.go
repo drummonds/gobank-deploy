@@ -22,20 +22,21 @@ import (
 // fakeOperator reports canned statuses and records actions. Actions block
 // until released so tests can observe the running state.
 type fakeOperator struct {
-	mu       sync.Mutex
-	statuses map[string]deploy.Status // provisioned environments
-	envsErr  error
-	ups      []deploy.UpOptions
-	downs    []deploy.Environment
-	demos    []demoCall
-	runs     []wf.RunRecord
-	releases deploy.Releases
-	relErr   error
-	fetched  string // what Fetch reports fetching
-	fetchErr error
-	fetches  int
-	release  chan struct{}
-	ctxErr   error
+	mu        sync.Mutex
+	statuses  map[string]deploy.Status // provisioned environments
+	envsErr   error
+	ups       []deploy.UpOptions
+	downs     []deploy.Environment
+	demos     []demoCall
+	runs      []wf.RunRecord
+	releases  deploy.Releases
+	relErr    error
+	fetched   string   // what Fetch reports fetching
+	fetchTags []string // the tags Fetch was asked for ("" is the newest)
+	fetchErr  error
+	fetches   int
+	release   chan struct{}
+	ctxErr    error
 }
 
 func newFakeOperator() *fakeOperator {
@@ -66,10 +67,14 @@ func (f *fakeOperator) Releases(context.Context) (deploy.Releases, error) {
 	return f.releases, f.relErr
 }
 
-func (f *fakeOperator) Fetch(context.Context) (string, error) {
+func (f *fakeOperator) Fetch(_ context.Context, tag string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.fetches++
+	f.fetchTags = append(f.fetchTags, tag)
+	if tag != "" && f.fetchErr == nil {
+		return tag, nil
+	}
 	return f.fetched, f.fetchErr
 }
 
@@ -618,6 +623,26 @@ func TestFetchEndpointFetchesTheNewestReleaseIntoTheStore(t *testing.T) {
 	}
 	if op.fetches != 1 {
 		t.Errorf("fetches = %d", op.fetches)
+	}
+}
+
+// POST /fetch?tag=vX asks for that release: fetched if the store lacks
+// it, and the next deploy either way, so a rollback is a fetch of the
+// previous tag and a redeploy.
+func TestFetchEndpointFetchesANamedTag(t *testing.T) {
+	ts, op := newTestServer(t)
+
+	resp, err := http.Post(ts.URL+"/fetch?tag=v0.3.44", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "v0.3.44") {
+		t.Errorf("status %d, body %q", resp.StatusCode, body)
+	}
+	if !slices.Equal(op.fetchTags, []string{"v0.3.44"}) {
+		t.Errorf("fetchTags = %v, want [v0.3.44]", op.fetchTags)
 	}
 }
 

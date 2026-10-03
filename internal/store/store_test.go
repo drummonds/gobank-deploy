@@ -109,3 +109,31 @@ func TestHasIsWhetherTheVersionWasPut(t *testing.T) {
 		t.Errorf("has v1 %v v2 %v v3 %v", s.Has("v1"), s.Has("v2"), s.Has("v3"))
 	}
 }
+
+// Use makes a version the store already holds the latest: the next deploy
+// is that version, a rollback when it is older. A version the store lacks
+// cannot be used.
+func TestUseMakesAHeldVersionTheLatest(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	bin := filepath.Join(t.TempDir(), "demo")
+	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"v1", "v2"} {
+		if err := s.Put(v, "amd64", bin); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Use("v1"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Latest() != "v1" {
+		t.Errorf("Latest = %s, want v1", s.Latest())
+	}
+	if err := s.Use("v3"); err == nil {
+		t.Error("Use of a version the store lacks should fail")
+	}
+	if s.Latest() != "v1" {
+		t.Errorf("a failed Use changed the latest to %s", s.Latest())
+	}
+}

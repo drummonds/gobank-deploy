@@ -185,6 +185,9 @@ type ReleaseStore interface {
 	Has(version string) bool
 	// Put adds version's binary for goarch and makes version the latest.
 	Put(version, goarch, binary string) error
+	// Use makes a version the store holds the latest (a rollback when it
+	// is older); an error when the store lacks it.
+	Use(version string) error
 }
 
 // Releases is where versions stand: the newest tag on the repo, and what
@@ -442,7 +445,7 @@ func (d *Deployer) fetch(ctx context.Context) {
 	if d.Repo == nil || d.Store == nil {
 		return
 	}
-	if _, err := d.Fetch(ctx); err != nil {
+	if _, err := d.Fetch(ctx, ""); err != nil {
 		d.printf("%v — deploying %s from the store\n", err, d.Build.Available())
 	}
 }
@@ -451,26 +454,38 @@ func (d *Deployer) fetch(ctx context.Context) {
 // from its checkout instead).
 var ErrNoStore = errors.New("no release store to fetch into")
 
-// Fetch puts the repo's newest tag, when the store lacks it, into the
-// store for every architecture and makes it the latest; it returns the
-// tag. A release the store already has is left alone, so an older one
-// put back (a rollback) stays the latest. Run before a deploy, and on its
-// own after gobank's release.
-func (d *Deployer) Fetch(ctx context.Context) (string, error) {
+// Fetch puts a release into the store for every architecture and makes
+// it the latest, the next deploy; it returns the tag. With no tag named
+// it is the repo's newest, fetched when the store lacks it and otherwise
+// left alone, so an older release put back (a rollback) stays the latest.
+// Run before a deploy, and on its own after gobank's release. A named tag
+// is fetched when the store lacks it and becomes the latest either way:
+// naming the previous release is the rollback (gobank ADR-0003), and a
+// redeploy then carries it.
+func (d *Deployer) Fetch(ctx context.Context, tag string) (string, error) {
 	if d.Store == nil {
 		return "", ErrNoStore
 	}
 	if d.Repo == nil {
 		return "", errors.New("no repo to fetch from")
 	}
-	tag, err := d.Repo.LatestTag(ctx)
-	if err != nil {
-		return "", fmt.Errorf("repo: %w", err)
-	}
-	if tag == "" {
-		return "", errors.New("the repo has no tags")
+	named := tag != ""
+	if !named {
+		var err error
+		if tag, err = d.Repo.LatestTag(ctx); err != nil {
+			return "", fmt.Errorf("repo: %w", err)
+		}
+		if tag == "" {
+			return "", errors.New("the repo has no tags")
+		}
 	}
 	if d.Store.Has(tag) {
+		if named {
+			if err := d.Store.Use(tag); err != nil {
+				return "", fmt.Errorf("store: %w", err)
+			}
+			d.printf("== %s is the next deploy\n", tag)
+		}
 		return tag, nil
 	}
 	d.printf("== fetch %s from the repo's release\n", tag)
@@ -514,8 +529,10 @@ func AppMemoryLimit(ramGB float64) string {
 
 // installScript installs the binary, writes the deployment's environment
 // (what changes per box or per deploy — sizing, the app password — as
-// opposed to what cloud-init fixes at first boot), makes the unit read it,
-// and restarts.
+// opposed to what cloud-init fixes at first boot), makes the unit read it
+// and gives it a stop timeout that outlasts a simulated day (the demo
+// finishes the day in progress on SIGTERM; a SIGKILL would lose it), and
+// restarts.
 func installScript(memoryLimit, appPassword string) string {
 	env := ""
 	if memoryLimit != "" {
@@ -531,6 +548,8 @@ mkdir -p /etc/gobank
 printf '%s' '` + env + `' > /etc/gobank/deploy.env
 grep -q 'EnvironmentFile=-/etc/gobank/deploy.env' /etc/systemd/system/gobank-demo.service || \
   sed -i '/^\[Service\]/a EnvironmentFile=-/etc/gobank/deploy.env' /etc/systemd/system/gobank-demo.service
+grep -q 'TimeoutStopSec=' /etc/systemd/system/gobank-demo.service || \
+  sed -i '/^\[Service\]/a TimeoutStopSec=900' /etc/systemd/system/gobank-demo.service
 systemctl daemon-reload
 systemctl enable gobank-demo >/dev/null 2>&1
 systemctl restart gobank-demo

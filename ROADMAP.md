@@ -51,6 +51,13 @@ inside the box first; expand/contract migrations through gobank-db.
       htmx and swap the fragment back, errors land in the row instead of
       a bare error page; without JavaScript the page still works as today.
       htmx is embedded, not fetched from a CDN
+- [x] (unreleased) Story 1i — Rollback from the store and a stop that
+      waits: `POST /fetch?tag=vX` makes a named release the next deploy
+      (fetched if absent), so gobank's upgrade drill (ADR-0003, stage 2
+      story (c)) rolls back with a fetch and a Redeploy; the systemd unit
+      gets `TimeoutStopSec=900` (fresh servers from cloud-init, existing
+      ones from the install script) so the demo finishes the day in
+      progress instead of being killed
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

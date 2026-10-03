@@ -76,7 +76,17 @@ task push     # build, then copy the latest release to hydrogen:/perm/gobank-dep
 
 Pushing an older version again makes it the store's latest, and since the
 store still has the newer one it is not fetched again: the next deploy is
-the rollback. The page and `status` show gobank's newest tag on the Forgejo
+the rollback. From the store itself, `POST /fetch?tag=vX` makes `vX` the
+next deploy, fetching it first if the store lacks it, so a rollback on
+hydrogen is:
+
+```sh
+curl -X POST https://gobank-deploy.lan.drummonds.net/fetch?tag=v0.6.0   # then Redeploy
+```
+
+The unit's `TimeoutStopSec=900` lets the demo finish the simulated day in
+progress before it exits (it does so on SIGTERM); the install script adds
+it to units from before it. The page and `status` show gobank's newest tag on the Forgejo
 beside what this host can deploy, and say whether the next deploy fetches
 it (a store) or the laptop's checkout needs a pull. Without a store and a
 toolchain the

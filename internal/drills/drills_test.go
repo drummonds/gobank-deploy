@@ -26,7 +26,8 @@ func open(t *testing.T) (*sql.DB, *Store) {
 
 var at = time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
 
-func intact(b bool) *bool { return &b }
+//go:fix inline
+func intact(b bool) *bool { return new(b) }
 
 func TestDrillIsKeptWithItsObservationsInMomentOrder(t *testing.T) {
 	_, s := open(t)
@@ -37,7 +38,7 @@ func TestDrillIsKeptWithItsObservationsInMomentOrder(t *testing.T) {
 	}
 	upgraded := Observation{Moment: Upgraded, ObservedAt: at.Add(2 * time.Minute), Version: "v0.8.0",
 		Position: &Position{Day: "2026-03-01", DayCount: 59, Customers: 1200, Savings: "£1,000.00", Lending: "£500.00"},
-		Restart:  &Restart{PreviousVersion: "v0.7.0", Downtime: 42 * time.Second, DowntimeKnown: true, Intact: intact(true)}}
+		Restart:  &Restart{PreviousVersion: "v0.7.0", Downtime: 42 * time.Second, DowntimeKnown: true, Intact: new(true)}}
 	before := Observation{Moment: Before, ObservedAt: at.Add(time.Minute), Version: "v0.7.0",
 		Position: &Position{Day: "2026-03-01", DayCount: 59, Customers: 1200, Savings: "£1,000.00", Lending: "£500.00"},
 		Restart:  &Restart{PreviousVersion: "", DowntimeKnown: false}}

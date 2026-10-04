@@ -250,7 +250,7 @@ type observationView struct {
 }
 
 func viewDrill(d drills.Drill) drillView {
-	v := drillView{Drill: d, Date: d.CreatedAt.Local().Format("Mon 2 Jan 2006")}
+	v := drillView{Drill: d, Date: d.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04")}
 	downtimes := map[drills.Moment]string{}
 	lost := false
 	for _, o := range d.Observations {

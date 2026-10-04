@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-04
+
+ - Story 1j: the upgrade drill as a workflow, with a pglike database and the DB explorer
+
 ### Added
 - The upgrade drill (story 1j): **Drill to vX** on an environment's row
   runs gobank's `upgrade-drill.md` as a gobank-workflow pipeline keyed

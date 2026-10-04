@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- The check after a start waits five minutes, not one, for the demo to
+  answer: it rebuilds the bank from its database before it listens (a
+  minute and a half at four thousand days, growing with the history), so
+  the first drill on prod failed its upgrade hop with "service not
+  answering" while the upgrade landed anyway
+
+### Changed
+- The Drills page shows each drill's run: its state and error, and the
+  steps with how long each took, so a failed drill reads in full there
+  rather than only on the environments page
+
 ## [0.6.0] - 2026-10-04
 
  - Story 1j: the upgrade drill as a workflow, with a pglike database and the DB explorer

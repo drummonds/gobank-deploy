@@ -481,6 +481,19 @@ func TestUpReusesExistingServer(t *testing.T) {
 	}
 }
 
+// The demo rebuilds the bank from its database before it listens: a
+// minute and a half at four thousand days, growing with the history. The
+// check must outlast that.
+func TestUpWaitsForASlowResume(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx23"}
+	h.probe.failFirst = 40 // answers after 200s of probing
+
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"}); err != nil {
+		t.Fatalf("a resume of a few minutes must pass the check: %v", err)
+	}
+}
+
 func TestUpFailsWhenServiceNeverAnswers(t *testing.T) {
 	h := newHarness()
 	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx23"}

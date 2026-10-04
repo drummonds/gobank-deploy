@@ -234,6 +234,8 @@ type stepView struct {
 type drillView struct {
 	drills.Drill
 	Date         string
+	Run          *runView   // the workflow run the drill is; nil when the store has lost it
+	Steps        []stepView // the run's recorded steps
 	Observations []observationView
 	Summary      string // the line gobank's drill asks to be recorded
 }
@@ -721,14 +723,28 @@ func (s *Server) render(w http.ResponseWriter, name string, data map[string]any)
 	}
 }
 
-// drills is the history: every drill with its observations, newest first.
+// drills is the history: every drill with its run's state and steps and
+// its observations, newest first.
 func (s *Server) drills(w http.ResponseWriter, r *http.Request) {
 	list, err := s.op.Drills(r.Context(), 50)
 	var views []drillView
 	for _, d := range list {
-		views = append(views, viewDrill(d))
+		v := viewDrill(d)
+		if rec, steps, err := s.op.Run(r.Context(), d.RunID); err == nil && rec != nil {
+			rv := viewRun(*rec)
+			v.Run, v.Steps = &rv, viewSteps(steps)
+		}
+		views = append(views, v)
 	}
 	s.render(w, "drills", map[string]any{"drills": views, "error": err})
+}
+
+func viewSteps(steps []wf.StepResult) []stepView {
+	var out []stepView
+	for _, st := range steps {
+		out = append(out, stepView{Name: st.StepName, Status: string(st.Status), Duration: time.Duration(st.DurationNs).Round(time.Second).String(), Error: st.Error})
+	}
+	return out
 }
 
 // run is one workflow instance: its state and recorded steps, and when it
@@ -743,11 +759,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var stepViews []stepView
-	for _, st := range steps {
-		stepViews = append(stepViews, stepView{Name: st.StepName, Status: string(st.Status), Duration: time.Duration(st.DurationNs).Round(time.Second).String(), Error: st.Error})
-	}
-	data := map[string]any{"run": viewRun(*rec), "steps": stepViews}
+	data := map[string]any{"run": viewRun(*rec), "steps": viewSteps(steps)}
 	if rec.WorkflowType == flows.WorkflowDrill {
 		if list, err := s.op.Drills(r.Context(), 200); err == nil {
 			for _, d := range list {

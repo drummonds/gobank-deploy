@@ -230,8 +230,12 @@ const (
 	binaryPath      = "/opt/gobank/demo"
 	serviceName     = "gobank-demo"
 	sshAttempts     = 60
-	probeAttempts   = 12
 	retryDelay      = 5 * time.Second
+	// servingWait bounds the check after a start: the demo rebuilds the
+	// bank from its database before it listens (a minute and a half at
+	// four thousand days, growing with the history).
+	servingWait   = 5 * time.Minute
+	probeAttempts = int(servingWait / retryDelay)
 )
 
 // Deployer runs the up, down and status sequences.

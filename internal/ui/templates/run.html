@@ -6,10 +6,7 @@
       <h1 class="title is-4">{{.run.Type}} · {{.run.Key}}</h1>
       <p class="mb-4">State <strong>{{.run.Status}}</strong>, started {{.run.Started}}{{if .run.Error}} <span class="has-text-danger">— {{.run.Error}}</span>{{end}}.
         A failed step is retried by the next run of the same instance; completed steps are never repeated.</p>
-      <table class="table is-narrow is-fullwidth">
-        <thead><tr><th>Step</th><th>State</th><th>Took</th><th>Error</th></tr></thead>
-        <tbody>{{range .steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td class="has-text-danger">{{.Error}}</td></tr>{{end}}</tbody>
-      </table>
+      {{template "steps" .steps}}
       {{with .drill}}
       <h2 class="title is-5">Observations</h2>
       {{template "observations" .}}
@@ -19,3 +16,7 @@
   </section>
 </body>
 </html>
+{{define "steps"}}<table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Step</th><th>State</th><th>Took</th><th>Error</th></tr></thead>
+        <tbody>{{range .}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td class="has-text-danger">{{.Error}}</td></tr>{{end}}</tbody>
+      </table>{{end}}

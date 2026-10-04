@@ -866,6 +866,24 @@ func TestDrillsPageIsTheHistoryWithTheLineForTheRecord(t *testing.T) {
 	}
 }
 
+func TestDrillsPageShowsEachDrillsRunStateAndSteps(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: service not answering", StartedAt: time.Now()}}
+	op.steps = map[string][]wf.StepResult{"run-7": {{StepName: "prepare", Status: wf.StatusCompleted, DurationNs: int64(3 * time.Second)}, {StepName: "upgrade", Status: wf.StatusFailed, DurationNs: int64(80 * time.Second), Error: "service not answering"}}}
+	op.drills = []drills.Drill{sampleDrill()}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/drills")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{"<strong>failed</strong>", "upgrade: service not answering", "<td>prepare</td><td>completed</td><td>3s</td>", "<td>upgrade</td><td>failed</td><td>1m20s</td>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("drills page missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestRunPageShowsTheStepsAndADrillsObservations(t *testing.T) {
 	ts, op := newTestServer(t)
 	op.mu.Lock()

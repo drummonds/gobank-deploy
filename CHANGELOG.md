@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- The check after a start waits while the service is alive (active and
+  not restarted by systemd), up to half an hour, instead of a fixed five
+  minutes: the demo's resume grows with its history (1m32s at 4,010 days,
+  2m21s at 5,811), so a clock would keep failing drills whose upgrade had
+  landed. The job log says so each minute; a service that dies or
+  restarts fails the check at once
+
 ## [0.7.0] - 2026-10-04
 
  - Serving check outlasts the demo's resume; drills page shows each run's state and steps

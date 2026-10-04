@@ -98,12 +98,16 @@ func (d *fakeDNS) Delete(_ context.Context, name string) error {
 }
 
 type fakeHost struct {
-	runs []string
-	puts []string
+	runs    []string
+	puts    []string
+	failing string // a command containing this fails
 }
 
 func (h *fakeHost) Run(_ context.Context, cmd string) error {
 	h.runs = append(h.runs, cmd)
+	if h.failing != "" && strings.Contains(cmd, h.failing) {
+		return errors.New("exit status 1")
+	}
 	return nil
 }
 
@@ -494,14 +498,51 @@ func TestUpWaitsForASlowResume(t *testing.T) {
 	}
 }
 
-func TestUpFailsWhenServiceNeverAnswers(t *testing.T) {
+// The resume grows with the history, so the check is bounded by the
+// service staying alive rather than by a short clock: a service that is
+// up and has not been restarted by systemd is still starting.
+func TestUpWaitsForALongResumeWhileTheServiceIsAlive(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx23"}
+	h.probe.failFirst = 240 // answers after 20 minutes of probing
+
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"}); err != nil {
+		t.Fatalf("a resume of twenty minutes must pass the check: %v", err)
+	}
+	if !strings.Contains(h.out.String(), "still starting") {
+		t.Errorf("the log must say the wait is deliberate:\n%s", h.out.String())
+	}
+}
+
+func TestUpFailsAsSoonAsTheServiceDies(t *testing.T) {
 	h := newHarness()
 	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx23"}
 	h.probe.failFirst = 1000
+	h.host.failing = "systemctl is-active"
 
 	_, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"})
 	if !errors.Is(err, ErrNotServing) {
 		t.Fatalf("err = %v, want ErrNotServing", err)
+	}
+	if !strings.Contains(err.Error(), "stopped or restarted") {
+		t.Errorf("the error must say the service died: %v", err)
+	}
+	if h.slept > time.Minute {
+		t.Errorf("a dead service is reported at once, not after %s", h.slept)
+	}
+}
+
+func TestUpFailsWhenServiceNeverAnswers(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx23"}
+	h.probe.failFirst = 100000
+
+	_, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"})
+	if !errors.Is(err, ErrNotServing) {
+		t.Fatalf("err = %v, want ErrNotServing", err)
+	}
+	if h.slept < 30*time.Minute || h.slept > 31*time.Minute {
+		t.Errorf("an alive service that never answers is given up after half an hour, not %s", h.slept)
 	}
 }
 

@@ -231,12 +231,18 @@ const (
 	serviceName     = "gobank-demo"
 	sshAttempts     = 60
 	retryDelay      = 5 * time.Second
-	// servingWait bounds the check after a start: the demo rebuilds the
-	// bank from its database before it listens (a minute and a half at
-	// four thousand days, growing with the history).
-	servingWait   = 5 * time.Minute
+	// servingWait is the ceiling on the check after a start. The demo
+	// rebuilds the bank from its database before it listens (a minute and
+	// a half at four thousand days, growing with the history), so the
+	// check waits while the service is alive and gives up here.
+	servingWait   = 30 * time.Minute
 	probeAttempts = int(servingWait / retryDelay)
 )
+
+// serviceAlive succeeds while the service is still starting: active, and
+// not restarted by systemd since the install (Restart=on-failure would
+// otherwise hide a crash loop behind an active unit).
+const serviceAlive = "systemctl is-active --quiet " + serviceName + " && test \"$(systemctl show -p NRestarts --value " + serviceName + ")\" = 0"
 
 // Deployer runs the up, down and status sequences.
 type Deployer struct {
@@ -435,8 +441,8 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 
 	d.printf("== check\n")
 	url := serviceURL(srv.IP)
-	if !d.waitServing(ctx, url) {
-		return nil, fmt.Errorf("%s: %w (check: journalctl -u %s on the box)", url, ErrNotServing, serviceName)
+	if err := d.waitServing(ctx, host, url); err != nil {
+		return nil, fmt.Errorf("%s: %w (check: journalctl -u %s on the box)", url, err, serviceName)
 	}
 	d.printf("\nModel Bank %s (%s) on %s at %s\n", o.Env.Name, rel.Version, srv.Type, d.publicURL(o.Env, srv, named))
 	return srv, nil
@@ -630,17 +636,27 @@ func (d *Deployer) waitSSH(ctx context.Context, ip string, fresh bool) (Host, er
 	return nil, fmt.Errorf("could not reach root@%s over ssh: %w", ip, lastErr)
 }
 
-func (d *Deployer) waitServing(ctx context.Context, url string) bool {
-	for range probeAttempts {
+// waitServing waits for the service at url to answer: as long as it is
+// alive on host (the resume takes as long as the history is), up to
+// servingWait. A service that dies or is restarted by systemd fails at
+// once.
+func (d *Deployer) waitServing(ctx context.Context, host Host, url string) error {
+	for attempt := range probeAttempts {
 		if _, serving := d.Probe.Probe(ctx, url); serving {
-			return true
+			return nil
 		}
 		if ctx.Err() != nil {
-			return false
+			return ctx.Err()
+		}
+		if err := host.Run(ctx, serviceAlive); err != nil {
+			return fmt.Errorf("%w: the service stopped or restarted", ErrNotServing)
+		}
+		if waited := time.Duration(attempt+1) * retryDelay; waited%time.Minute == 0 {
+			d.printf("still starting after %s (the demo rebuilds the bank from its database before it listens)\n", waited)
 		}
 		d.sleep(retryDelay)
 	}
-	return false
+	return fmt.Errorf("%w after %s", ErrNotServing, servingWait)
 }
 
 // Down deletes the environment's server and firewall. Deletion is what stops

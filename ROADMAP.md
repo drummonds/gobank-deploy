@@ -8,7 +8,8 @@ inside the box first; expand/contract migrations through gobank-db.
 
 - [ ] Demo resumes from an existing PostgreSQL database instead of
       dropping all tables on start (nothing below is real until this lands)
-- [ ] Version and applied migrations as JSON on the about endpoint
+- [x] Version and applied migrations as JSON on the about endpoint
+      (gobank `/about.json`, with the position and the restart record)
 - [ ] Schema applied through gobank-db `Apply` (expand / cutover / contract)
 
 ## Stories
@@ -58,6 +59,15 @@ inside the box first; expand/contract migrations through gobank-db.
       gets `TimeoutStopSec=900` (fresh servers from cloud-init, existing
       ones from the install script) so the demo finishes the day in
       progress instead of being killed
+- [x] (unreleased) Story 1j — The upgrade drill as a workflow, with a
+      database: gobank's `upgrade-drill.md` steps 1, 2 and 4 to 8 run from a
+      Drill button as a gobank-workflow pipeline (prepare, before, upgrade,
+      rollback, forward), each hop observed at the demo's `/about.json` and
+      gated on version, clean stop, downtime, intact handover and same day.
+      Workflow runs and drills live in a pglike file (`-db`, on /perm on
+      hydrogen), two components' schemas in one database (gobank-db
+      `ApplyTo`), browsed with go-dbexplorer; a Drills page is the history
+      with the line for each story's record. Closes issue #1
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys
@@ -70,6 +80,15 @@ inside the box first; expand/contract migrations through gobank-db.
       known_hosts and the release store on /perm. Done by 1b + 1c
 
 ## Later
+
+- gobank-deploy is itself a system with a past now: its database has
+  versioned schemas, so its own upgrade on hydrogen (a gokrazy update) is
+  a hop with migrations to rehearse, without the simulation. The same
+  workflow shape, a different console
+- Two things to deploy, itself and gobank, from one place: the
+  orchestrator may want to become a general deploy tool, with the
+  environment and release vocabulary kept and the gobank specifics
+  (the demo's console, the Hetzner box) behind an interface
 
 - Separate database box: the app's memory share rises from 50% of the
   box (see `appShareWithLocalPostgres`) once PostgreSQL is elsewhere;

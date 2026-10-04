@@ -5,8 +5,12 @@
 //	gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<type>]
 //	gobank-deploy down <env> [-y]
 //	gobank-deploy status <env>
-//	gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo]
+//	gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo] [-db build/gobank-deploy.db]
 //	gobank-deploy build [-out build/releases]
+//
+// The ui keeps its workflow runs and gobank's upgrade drills in a pglike
+// (SQLite file) database, -db, so they survive a restart; on hydrogen it
+// is on /perm beside the release store.
 //
 // A host that cannot build cmd/demo (the hydrogen appliance) deploys from
 // a release store instead: -store DIR. Before a deploy the repo's newest
@@ -30,6 +34,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -43,9 +48,12 @@ import (
 	"strings"
 	"time"
 
-	wf "git.bytestone.uk/hum3/gobank-workflow"
+	dbexplorer "git.bytestone.uk/hum3/go-dbexplorer"
+	_ "git.bytestone.uk/hum3/go-postgres"
+	"git.bytestone.uk/hum3/gobank-workflow/sqlstore"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/forge"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
@@ -62,10 +70,12 @@ func usage() {
   gobank-deploy up <env> [-create] [-scale small|medium|large|xl|<hcloud type>]
   gobank-deploy down <env> [-y]
   gobank-deploy status <env>
-  gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo]
+  gobank-deploy ui [-addr :1348] [-envs prod,preprod,demo] [-db FILE]
                                                        web page: states and controls for -envs plus every
                                                        gobank-* server in the project, and a form to add one
-                                                       (status and down only where no release can be had)
+                                                       (status and down only where no release can be had);
+                                                       workflow runs and upgrade drills kept in the pglike
+                                                       database FILE (default <-build>/gobank-deploy.db)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
   gobank-deploy version
@@ -159,6 +169,7 @@ func main() {
 		fs := flag.NewFlagSet("ui", flag.ExitOnError)
 		addr := fs.String("addr", ":1348", "listen address")
 		names := fs.String("envs", "prod,preprod,demo", "environments always shown, provisioned or not")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database for workflow runs and drills")
 		_ = fs.Parse(args)
 		var envs []deploy.Environment
 		for n := range strings.SplitSeq(*names, ",") {
@@ -167,13 +178,19 @@ func main() {
 			}
 		}
 		factory := ui.DeployerFactory(newDeployer)
-		// Run records live in memory for now; the server carries what
-		// must survive (its expiry), and Reconcile picks it up again.
-		demo := &flows.Demo{Ops: factory, Store: wf.NewMemStore()}
-		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo}, envs)
+		database, runs, drillStore, err := openDatabase(ctx, *dbFile)
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer database.Close()
+		demo := &flows.Demo{Ops: factory, Store: runs}
+		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: drillStore}
+		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill}, envs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		explorer := &dbexplorer.Explorer{DB: database, BasePath: "/internal/explorer", UUIDLen: 8, TimeFormat: "2006-01-02 15:04:05"}
+		page.Explorer = explorer.Render
 		go page.Run(ctx, time.Minute)
 		page.Version = "gobank-deploy " + version
 		page.UpUnavailable = upUnavailable
@@ -229,6 +246,31 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// openDatabase opens the pglike file (created if absent, its directory
+// too) and brings both components' schemas up to date: gobank-workflow's
+// run records and this program's drills, each versioned in its own
+// migrations table.
+func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, error) {
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return nil, nil, nil, err
+	}
+	d, err := sql.Open("pglike", file)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
+	}
+	runs, err := sqlstore.New(d)
+	if err != nil {
+		d.Close()
+		return nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	}
+	ds, err := drills.New(ctx, d)
+	if err != nil {
+		d.Close()
+		return nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	}
+	return d, runs, ds, nil
 }
 
 // dnsFor is the Route 53 provider for domain, or nil (with a notice) when

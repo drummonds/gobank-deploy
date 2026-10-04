@@ -13,6 +13,8 @@
   <nav class="navbar is-primary" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
       <span class="navbar-item has-text-weight-bold">gobank environments</span>
+      <a class="navbar-item" href="/drills">Drills</a>
+      {{if .explorer}}<a class="navbar-item" href="/internal/explorer">DB Explorer</a>{{end}}
       <a class="navbar-item" href="/about">About</a>
     </div>
     <div class="navbar-end">

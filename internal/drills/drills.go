@@ -50,8 +50,8 @@ func (m Moment) order() int {
 
 // Observation is the demo as read at a moment: the version answering,
 // where the run is, and the newest row of its restart record. Position and
-// Restart are nil when the release offers no about.json (before gobank
-// v0.8.0), so the version is all that can be checked.
+// Restart are nil when the release offers no about.json (gobank before
+// it had one), so the version is all that can be checked.
 type Observation struct {
 	Moment     Moment
 	ObservedAt time.Time
@@ -261,7 +261,7 @@ func sortByMoment(obs []Observation) {
 
 // Reading is the demo as its about.json gives it at one moment: what the
 // drill reads before and after each hop. About is false when the release
-// offers no about.json (before gobank v0.8.0): Version then came from the
+// offers no about.json (gobank before it had one): Version then came from the
 // page and nothing else is known.
 type Reading struct {
 	Version   string

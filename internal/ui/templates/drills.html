@@ -1,0 +1,34 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      <h1 class="title is-4">Upgrade drills</h1>
+      <p class="mb-4">gobank's <a href="https://gobank.docs.bytestone.uk/upgrade-drill.html">upgrade drill</a> (ADR-0003) as this page ran it:
+        each environment upgraded to the newest release, rolled back and taken forward again, with the demo observed before and after every hop.
+        Downtime is read off the demo's restart record; <em>intact</em> is the record's own check that the day and customers were the same on both sides of the stop.</p>
+      {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
+      {{if not .drills}}<p class="has-text-grey">No drills yet. Drill an environment from the environments page when a newer release is out.</p>{{end}}
+      {{range .drills}}
+      <div class="box">
+        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.From}} → {{.To}} · <a href="/workflows/{{.RunID}}">run</a></p>
+        {{template "observations" .}}
+        <p class="is-size-7">For the record: <code>{{.Summary}}</code></p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>
+{{define "observations"}}<table class="table is-narrow is-fullwidth is-size-7">
+          <thead><tr><th>Moment</th><th>Serving</th><th>Day</th><th>Customers</th><th>Savings</th><th>Lending</th><th>After</th><th>Downtime</th><th>Handover</th></tr></thead>
+          <tbody>
+          {{range .Observations}}<tr>
+            <td>{{.Moment}}</td><td>{{.Version}}</td>
+            {{if .Position}}<td>{{.Position.DayCount}} ({{.Position.Day}})</td><td>{{.Position.Customers}}</td><td>{{.Position.Savings}}</td><td>{{.Position.Lending}}</td>
+            {{else}}<td colspan="4" class="has-text-grey">no about.json on this release</td>{{end}}
+            <td>{{.Previous}}</td><td{{if eq .Downtime "unknown"}} class="has-text-danger"{{end}}>{{.Downtime}}</td>
+            <td{{if eq .Intact "NOT intact"}} class="has-text-danger"{{end}}>{{.Intact}}</td>
+          </tr>{{end}}
+          </tbody>
+        </table>{{end}}

@@ -54,8 +54,8 @@ type Console interface {
 	SetDayLength(ctx context.Context, url string, d time.Duration) error
 }
 
-// ErrNoAbout: the release serving offers no about.json (before gobank
-// v0.8.0), so only its version can be checked.
+// ErrNoAbout: the release serving offers no about.json (gobank before
+// it had one), so only its version can be checked.
 var ErrNoAbout = errors.New("no about.json on this release")
 
 // Drill runs the drill workflow.

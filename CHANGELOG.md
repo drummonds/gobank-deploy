@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The upgrade drill (story 1j): **Drill to vX** on an environment's row
+  runs gobank's `upgrade-drill.md` as a gobank-workflow pipeline keyed
+  `<env> N→N+1 <date>`: `prepare` (a day of at least 30m, set to 2h
+  otherwise, then wait for a day with 10m left), `before`, `upgrade`,
+  `rollback`, `forward`. Each hop fetches the release, redeploys, reads
+  the demo's `/about.json` and is gated on the version serving, a restart
+  row following the expected release with a known downtime and an intact
+  handover, and the same simulated day as before; a release without
+  `about.json` has its version checked only. A failed hop resumes on the
+  next press the same day. Offered only with a release store to roll back
+  from and a newer release than the one serving
+- A database: `ui -db FILE` (default `<-build>/gobank-deploy.db`, so
+  `/perm/gobank-deploy/gobank-deploy.db` on hydrogen) is a pglike file
+  holding gobank-workflow's run records and this program's `drills` and
+  `drill_observations`, each component's schema versioned in its own
+  migrations table through gobank-db `ApplyTo`. Runs and drills survive a
+  restart; closes issue #1
+- Pages: **Drills**, the history with each drill's observations and the
+  line for the story's record; `/workflows/<id>`, a run's steps and, for
+  a drill, its observations (the runs table links there); **DB Explorer**
+  at `/internal/explorer` (go-dbexplorer) over the live database. The
+  About page draws the drill workflow
+- `internal/remote.Console`: the demo's `/about.json` and settings form
+  as the drill uses them
+
+### Changed
+- `cmd/flowd2` writes one `<type>-workflow.d2` per definition instead of
+  printing one to stdout
+
 ## [0.5.0] - 2026-10-04
 
  - Story 1i: rollback from the store (fetch a named tag) and a stop timeout that outlasts a day

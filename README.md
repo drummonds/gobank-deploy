@@ -96,6 +96,30 @@ from the gokrazy secrets note); its public half is registered in the
 Hetzner project so new servers accept it, and was added to servers that
 predate it by hand. Pinned host keys live in `/perm/gobank-deploy/known_hosts`.
 
+### The upgrade drill
+
+**Drill to vX** on an environment's row runs gobank's
+[upgrade drill](https://gobank.docs.bytestone.uk/upgrade-drill.html)
+(ADR-0003) as a workflow: a day long enough to upgrade inside (set to 2h
+when under 30m, then wait for a day with 10m left), observe the demo,
+upgrade to the newest release, roll back, forward again, observing after
+each hop. The demo is read at its `/about.json`; each hop is gated on the
+version serving, a restart row that follows the expected release with a
+known downtime and an intact handover, and the same simulated day as
+before. It is offered where the manual drill runs: a store to roll back
+from and a newer release than the one serving. A failed hop fails the run
+and says why; pressing Drill again the same day resumes from that hop.
+The **Drills** page is the history, one line per drill ready for the
+story's record; each run's steps are at `/workflows/<id>`, the tables at
+`/internal/explorer`.
+
+The page keeps its workflow runs and drills in a pglike (SQLite file)
+database, `-db`, default `<-build>/gobank-deploy.db`: on hydrogen that is
+`/perm/gobank-deploy/gobank-deploy.db`, beside the release store, so no
+flag is needed there. gobank-workflow's tables and this program's drill
+tables share the file, each component's schema versioned in its own
+migrations table (`schema_migrations`, `deploy_schema_migrations`).
+
 ### Temporary environments: the demo workflow
 
 "Remove after" on either Create form runs the **demo** workflow instead of
@@ -104,10 +128,11 @@ the server), `serve` (until then, or until someone presses Down), `remove`
 (down). It is a [gobank-workflow](https://git.bytestone.uk/hum3/gobank-workflow)
 pipeline: one keyed instance (`<env>@<expiry>`) whose stages are recorded,
 so a failed stage is resumed by the next run and a finished one is final.
-The run records live in memory for now; what must survive is on the server
-itself, and every minute the page starts the workflow for any temporary
+The run records are in the `-db` database; what must survive is on the
+server itself, and every minute the page starts the workflow for any temporary
 server nobody is looking after, so a demo still goes after the page
-restarts. `demo-workflow.d2` (from `go run ./cmd/flowd2`) draws it.
+restarts. `demo-workflow.d2` and `drill-workflow.d2` (from `go run
+./cmd/flowd2`) draw the two workflows.
 
 Each environment gets the hostname `<env>.gobank.drummonds.net`: an A
 record in Route 53 (TTL 60s, since Hetzner reuses addresses) set on `up`
@@ -144,12 +169,14 @@ forgotten first because Hetzner reuses addresses.
   `Dialer`, `Builder` and `Prober` interfaces; tested with fakes.
 - `internal/hetzner` — `Cloud` on hcloud-go.
 - `internal/remote` — ssh `Dialer` with host-key pinning, Go `Builder`,
-  HTTP `Prober`.
+  HTTP `Prober`, and the demo's `Console` (its `/about.json` and settings).
 - `internal/ui` — the lofigui page: states, create / redeploy / down / cancel,
   one job per environment with its log, and an About page with the
   component diagrams; tested against a fake `Operator`.
 - `internal/flows` — the workflows on gobank-workflow's pipeline runner:
-  the temporary demo environment.
+  the temporary demo environment, and gobank's upgrade drill.
+- `internal/drills` — the drill record: each drill with what the demo
+  looked like before and after every hop, in the shared pglike database.
 - `internal/route53`, `internal/store` — `DNS` on Route 53; the release store.
 - `cmd/gobank-deploy` — the command.
 

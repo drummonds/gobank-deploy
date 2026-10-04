@@ -57,6 +57,42 @@ one billing.
 
 ![Demo workflow](demo-workflow.svg)
 
+## The upgrade drill
+
+gobank's [upgrade drill](https://gobank.docs.bytestone.uk/upgrade-drill.html)
+(ADR-0003) is a second workflow: one instance per environment, release
+pair and date. Step 3 of the manual drill, the release, stays with the
+operator; the rest runs from the Drill button.
+
+![Drill workflow](drill-workflow.svg)
+
+| Term | Meaning |
+|------|---------|
+| drill | one rehearsal on an environment: upgrade from release N to N+1, roll back to N, forward to N+1 |
+| hop | one redeploy inside a drill: upgrade, rollback, forward |
+| observation | the demo as read at a moment (before, upgraded, rolled back, forward): version serving, position, newest restart row |
+| position | the demo's day, day count, customers, savings, lending |
+| restart row | the demo's own record of a process start: which release it followed, the downtime, whether day and customers matched across the stop |
+| gate | a check on a hop's observation that fails the stage |
+
+What a hop is gated on, and what is recorded but not gated:
+
+| Observation after the hop | Outcome |
+|---------------------------|---------|
+| version serving is not the release fetched | fail: serving X, expected Y |
+| no restart row | fail: the demo kept no record of this start |
+| restart row follows a release other than the one before the hop (an unrecorded one is accepted) | fail: follows X, expected Y |
+| downtime unknown | fail: the previous release did not stop cleanly |
+| handover not intact | fail: day or customers differ across the stop |
+| simulated day differs from the day before the drill | fail: landed on a day boundary |
+| release without `about.json` | version checked; position and restart row recorded as absent |
+| customers, savings, lending differ from before | recorded side by side, not gated: the generator moves them within a day; the restart row already pins customers across the stop |
+| all of the above hold | the hop completes |
+
+Every drill is kept with its observations in the page's pglike database
+beside the workflow runs; the Drills page is the history, the DB Explorer
+the tables.
+
 ## Environment states
 
 | Server | Answers | Version vs available | State on the page | Offered |
@@ -66,6 +102,7 @@ one billing.
 | exists | yes | same | Serving, current | Redeploy, Down |
 | exists | yes | different | Serving, *vX available* | Redeploy, Down |
 | exists, `expires` label | any | any | as above, plus *removed at* | the demo workflow's job, Down |
+| exists | yes | a newer release on the repo, and a store here | Serving, *vX available* | Redeploy, Drill to vX, Down |
 
 Where no release can be had (no toolchain and an empty store) only status
 and Down are offered, and the page says why.

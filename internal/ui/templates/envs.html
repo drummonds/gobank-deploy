@@ -44,6 +44,10 @@
               {{else if .Server}}
                 <div class="buttons are-small">
                   {{if not $.upUnavailable}}<form method="post" action="/env/{{.Name}}/redeploy" hx-post="/env/{{.Name}}/redeploy"><button class="button is-small is-link">Redeploy</button></form>{{end}}
+                  {{if and .DrillTo (not $.upUnavailable)}}<form method="post" action="/env/{{.Name}}/drill" hx-post="/env/{{.Name}}/drill" class="ml-2">
+                    <label class="checkbox is-size-7"><input type="checkbox" name="confirm" required> three restarts</label>
+                    <button class="button is-small is-primary" title="gobank's upgrade drill: up to {{.DrillTo}}, back, forward; see Drills">Drill to {{.DrillTo}}</button>
+                  </form>{{end}}
                   <form method="post" action="/env/{{.Name}}/down" hx-post="/env/{{.Name}}/down" class="ml-2">
                     <label class="checkbox is-size-7"><input type="checkbox" name="confirm" required> delete server and database</label>
                     <button class="button is-small is-danger">Down</button>
@@ -91,7 +95,7 @@
       <table class="table is-fullwidth is-narrow is-size-7">
         <thead><tr><th>Workflow</th><th>Instance</th><th>State</th><th>Started</th><th>Error</th></tr></thead>
         <tbody>
-        {{range .runs}}<tr><td>{{.Type}}</td><td>{{.Key}}</td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
+        {{range .runs}}<tr><td>{{.Type}}</td><td><a href="/workflows/{{.ID}}">{{.Key}}</a></td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
         </tbody>
       </table>
       {{end}}

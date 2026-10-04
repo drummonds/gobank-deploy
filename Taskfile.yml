@@ -92,7 +92,7 @@ tasks:
     vars:
       MAX_WIDTH: 1500
     cmds:
-      - go run ./cmd/flowd2 > demo-workflow.d2
+      - go run ./cmd/flowd2
       - |
         for f in *.d2; do
           d2 "$f" "docs/${f%.d2}.svg"

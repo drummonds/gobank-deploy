@@ -1,0 +1,10 @@
+direction: right
+
+drill: "drill — one instance per environment N→N+1 date" {
+  prepare: "prepare" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"}
+  before: "before" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"}
+  upgrade: "upgrade" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"}
+  rollback: "rollback" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"}
+  forward: "forward" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"}
+  prepare -> before -> upgrade -> rollback -> forward
+}

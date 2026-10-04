@@ -23,6 +23,7 @@ import (
 	"git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 )
 
@@ -53,12 +54,20 @@ type Operator interface {
 	// returning its tag: the repo's newest when tag is "", else that tag
 	// (a rollback when it is older).
 	Fetch(ctx context.Context, tag string) (string, error)
+	// Drill runs gobank's upgrade drill on env: up to the newest release,
+	// back, forward, observing the demo at each hop.
+	Drill(ctx context.Context, env deploy.Environment, out io.Writer) error
+	// Drills lists recent drills with their observations, most recent first.
+	Drills(ctx context.Context, limit int) ([]drills.Drill, error)
+	// Run is one workflow run with its steps; nil when there is none.
+	Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
 type Ops struct {
 	DeployerFactory
-	Flows *flows.Demo
+	Flows  *flows.Demo
+	Drill_ *flows.Drill
 }
 
 func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -67,6 +76,23 @@ func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out
 
 func (o Ops) Runs(ctx context.Context, limit int) ([]wf.RunRecord, error) {
 	return o.Flows.Store.ListRuns(ctx, limit)
+}
+
+func (o Ops) Drill(ctx context.Context, env deploy.Environment, out io.Writer) error {
+	return o.Drill_.Run(ctx, env, out)
+}
+
+func (o Ops) Drills(ctx context.Context, limit int) ([]drills.Drill, error) {
+	return o.Drill_.Drills.List(ctx, limit)
+}
+
+func (o Ops) Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error) {
+	run, err := o.Flows.Store.GetRun(ctx, id)
+	if err != nil || run == nil {
+		return nil, nil, err
+	}
+	steps, err := o.Flows.Store.ListSteps(ctx, id)
+	return run, steps, err
 }
 
 // DeployerFactory adapts deploy.Deployer to Operator: each job gets a
@@ -161,15 +187,110 @@ type envView struct {
 	Error   error
 	Job     *jobView
 	Removed string // when a temporary environment goes, local time; "" for a standing one
+	DrillTo string // the release a drill would upgrade to; "" when none is offered
+}
+
+// drillTarget is the release gobank's upgrade drill would take st to: the
+// repo's newest (or the store's latest), when it differs from what is
+// serving and this host deploys from a store it can roll back from.
+func drillTarget(st deploy.Status, rel deploy.Releases) string {
+	if st.Server == nil || !st.Serving || st.Version == "" || !rel.Fetches {
+		return ""
+	}
+	to := rel.Repo
+	if to == "" {
+		to = rel.Available
+	}
+	if to == "" || to == st.Version {
+		return ""
+	}
+	return to
 }
 
 // runView is a workflow run as the template sees it.
 type runView struct {
+	ID      string
 	Type    string
 	Key     string
 	Status  string
 	Started string
 	Error   string
+}
+
+func viewRun(rec wf.RunRecord) runView {
+	return runView{ID: rec.ID, Type: string(rec.WorkflowType), Key: rec.Key, Status: string(rec.Status), Started: rec.StartedAt.Local().Format("15:04 Mon 2 Jan"), Error: rec.Error}
+}
+
+// stepView is a recorded step as the template sees it.
+type stepView struct {
+	Name     string
+	Status   string
+	Duration string
+	Error    string
+}
+
+// drillView is a drill as the template sees it: one row per drill with
+// its downtime per hop and the line for the record.
+type drillView struct {
+	drills.Drill
+	Date         string
+	Observations []observationView
+	Summary      string // the line gobank's drill asks to be recorded
+}
+
+type observationView struct {
+	Moment   string
+	Version  string
+	Position *drills.Position
+	Previous string // "" when there is no restart row
+	Downtime string // "", "unknown" or a duration
+	Intact   string // "", "intact" or "NOT intact"
+}
+
+func viewDrill(d drills.Drill) drillView {
+	v := drillView{Drill: d, Date: d.CreatedAt.Local().Format("Mon 2 Jan 2006")}
+	downtimes := map[drills.Moment]string{}
+	lost := false
+	for _, o := range d.Observations {
+		ov := observationView{Moment: strings.ReplaceAll(string(o.Moment), "_", " "), Version: o.Version, Position: o.Position}
+		if rs := o.Restart; rs != nil {
+			ov.Previous = rs.PreviousVersion
+			if ov.Previous == "" {
+				ov.Previous = "unrecorded"
+			}
+			ov.Downtime = "unknown"
+			if rs.DowntimeKnown {
+				ov.Downtime = rs.Downtime.Round(time.Second).String()
+			}
+			if rs.Intact != nil {
+				ov.Intact = "intact"
+				if !*rs.Intact {
+					ov.Intact, lost = "NOT intact", true
+				}
+			}
+			if o.Moment != drills.Before {
+				downtimes[o.Moment] = ov.Downtime
+			}
+		}
+		v.Observations = append(v.Observations, ov)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s: %s → %s", d.CreatedAt.Local().Format("2006-01-02"), d.Environment, d.From, d.To)
+	for _, m := range []drills.Moment{drills.Upgraded, drills.RolledBack, drills.Forward} {
+		if dt, ok := downtimes[m]; ok {
+			fmt.Fprintf(&b, ", %s %s", strings.ReplaceAll(string(m), "_", " "), dt)
+		}
+	}
+	if _, ok := downtimes[drills.RolledBack]; ok {
+		b.WriteString(", rollback done")
+	}
+	if lost {
+		b.WriteString(", handover NOT intact")
+	} else if len(downtimes) == 3 {
+		b.WriteString(", nothing lost")
+	}
+	v.Summary = b.String()
+	return v
 }
 
 // Server is the http.Handler for the page.
@@ -188,6 +309,9 @@ type Server struct {
 	UpUnavailable func() string
 	// Now is the time the page shows on its clock; nil means time.Now.
 	Now func() time.Time
+	// Explorer renders the database explorer for a request URI under
+	// /internal/explorer (go-dbexplorer's Render); nil means no explorer.
+	Explorer func(ctx context.Context, rawURL string) string
 
 	mu   sync.Mutex
 	jobs map[string]*job // latest job per environment
@@ -196,7 +320,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/drills.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +340,13 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("POST /env/{env}/create", s.action("create"))
 	s.mux.HandleFunc("POST /env/{env}/redeploy", s.action("redeploy"))
 	s.mux.HandleFunc("POST /env/{env}/down", s.action("down"))
+	s.mux.HandleFunc("POST /env/{env}/drill", s.action("drill"))
 	s.mux.HandleFunc("POST /env/{env}/cancel", s.cancel)
 	s.mux.HandleFunc("POST /fetch", s.fetch)
+	s.mux.HandleFunc("GET /drills", s.drills)
+	s.mux.HandleFunc("GET /workflows/{id}", s.run)
+	s.mux.HandleFunc("GET /internal/explorer", s.explorer)
+	s.mux.HandleFunc("GET /internal/explorer/", s.explorer)
 	s.mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
 	s.mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	return s, nil
@@ -297,11 +426,15 @@ func (s *Server) pageData(ctx context.Context) map[string]any {
 	var runs []runView
 	if recs, err := s.op.Runs(ctx, 20); err == nil {
 		for _, rec := range recs {
-			runs = append(runs, runView{Type: string(rec.WorkflowType), Key: rec.Key, Status: string(rec.Status), Started: rec.StartedAt.Local().Format("15:04 Mon 2 Jan"), Error: rec.Error})
+			runs = append(runs, viewRun(rec))
 		}
 	}
 	releases, relErr := s.op.Releases(ctx)
+	for i := range views {
+		views[i].DrillTo = drillTarget(views[i].Status, releases)
+	}
 	return map[string]any{
+		"explorer":      s.Explorer != nil,
 		"envs":          views,
 		"runs":          runs,
 		"releases":      releases,
@@ -493,6 +626,14 @@ func (s *Server) action(name string) http.HandlerFunc {
 			run = func(ctx context.Context, out io.Writer) error {
 				return s.op.Down(ctx, env, out)
 			}
+		case "drill":
+			if r.FormValue("confirm") == "" {
+				s.fail(w, r, http.StatusBadRequest, "tick the confirmation: the drill restarts the environment three times")
+				return
+			}
+			run = func(ctx context.Context, out io.Writer) error {
+				return s.op.Drill(ctx, env, out)
+			}
 		}
 		if err := s.start(env, name, run); err != nil {
 			s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: %v", env.Name, err))
@@ -566,4 +707,65 @@ func (s *Server) fetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintf(w, "%s is in the store\n", tag)
+}
+
+// render writes one of the secondary pages (drills, a run, the explorer)
+// in the page layout.
+func (s *Server) render(w http.ResponseWriter, name string, data map[string]any) {
+	data["version"] = s.Version
+	data["explorer"] = s.Explorer != nil
+	data["page"] = name
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.page.ExecuteTemplate(w, name+".html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// drills is the history: every drill with its observations, newest first.
+func (s *Server) drills(w http.ResponseWriter, r *http.Request) {
+	list, err := s.op.Drills(r.Context(), 50)
+	var views []drillView
+	for _, d := range list {
+		views = append(views, viewDrill(d))
+	}
+	s.render(w, "drills", map[string]any{"drills": views, "error": err})
+}
+
+// run is one workflow instance: its state and recorded steps, and when it
+// is a drill, the drill's observations.
+func (s *Server) run(w http.ResponseWriter, r *http.Request) {
+	rec, steps, err := s.op.Run(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if rec == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var stepViews []stepView
+	for _, st := range steps {
+		stepViews = append(stepViews, stepView{Name: st.StepName, Status: string(st.Status), Duration: time.Duration(st.DurationNs).Round(time.Second).String(), Error: st.Error})
+	}
+	data := map[string]any{"run": viewRun(*rec), "steps": stepViews}
+	if rec.WorkflowType == flows.WorkflowDrill {
+		if list, err := s.op.Drills(r.Context(), 200); err == nil {
+			for _, d := range list {
+				if d.RunID == rec.ID {
+					data["drill"] = viewDrill(d)
+				}
+			}
+		}
+	}
+	s.render(w, "run", data)
+}
+
+// explorer is go-dbexplorer over this program's database, in the page
+// layout; the request URI carries the explorer's own navigation.
+func (s *Server) explorer(w http.ResponseWriter, r *http.Request) {
+	if s.Explorer == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.render(w, "explorer", map[string]any{"html": template.HTML(s.Explorer(r.Context(), r.URL.RequestURI()))})
 }

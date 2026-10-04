@@ -17,6 +17,7 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 )
 
 // fakeOperator reports canned statuses and records actions. Actions block
@@ -37,6 +38,39 @@ type fakeOperator struct {
 	fetches   int
 	release   chan struct{}
 	ctxErr    error
+	drilled   []deploy.Environment
+	drills    []drills.Drill
+	steps     map[string][]wf.StepResult
+}
+
+func (f *fakeOperator) Drill(ctx context.Context, env deploy.Environment, out io.Writer) error {
+	f.mu.Lock()
+	f.drilled = append(f.drilled, env)
+	f.mu.Unlock()
+	fmt.Fprintf(out, "== prepare %s\n", env.Name)
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (f *fakeOperator) Drills(context.Context, int) ([]drills.Drill, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.drills, nil
+}
+
+func (f *fakeOperator) Run(_ context.Context, id string) (*wf.RunRecord, []wf.StepResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.runs {
+		if r.ID == id {
+			return &r, f.steps[id], nil
+		}
+	}
+	return nil, nil, nil
 }
 
 func newFakeOperator() *fakeOperator {
@@ -757,5 +791,121 @@ func TestHtmxIsEmbedded(t *testing.T) {
 	code, body := get(t, ts, "/assets/htmx.min.js")
 	if code != 200 || !strings.HasPrefix(body, "var htmx=") {
 		t.Errorf("htmx should be served from the binary: status %d, body %.40q", code, body)
+	}
+}
+
+// The drill is offered where the manual one runs: a serving environment,
+// a newer release on the repo, and a store to roll back from.
+func TestDrillIsOfferedWhenANewerReleaseCanBeFetched(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/")
+	if strings.Contains(body, "/env/prod/drill") {
+		t.Error("without a store there is nothing to roll back from: no drill")
+	}
+	op.mu.Lock()
+	op.releases = deploy.Releases{Repo: "v0.3.48", Available: "v0.3.47", Fetches: true}
+	op.mu.Unlock()
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, `action="/env/prod/drill"`) || !strings.Contains(body, "Drill to v0.3.48") || strings.Contains(body, `action="/env/preprod/drill"`) {
+		t.Errorf("drill offered on prod to the repo's newest only:\n%s", body)
+	}
+	op.mu.Lock()
+	op.releases = deploy.Releases{Repo: "v0.3.46", Available: "v0.3.46", Fetches: true}
+	op.mu.Unlock()
+	_, body = get(t, ts, "/")
+	if strings.Contains(body, "/env/prod/drill") {
+		t.Error("serving the newest release: nothing to drill")
+	}
+}
+
+func TestDrillNeedsConfirmationThenRunsAsAJob(t *testing.T) {
+	ts, op := newTestServer(t)
+	if code := post(t, ts, "/env/prod/drill", nil); code != http.StatusBadRequest {
+		t.Errorf("unconfirmed drill: status %d", code)
+	}
+	if code := post(t, ts, "/env/prod/drill", url.Values{"confirm": {"on"}}); code != http.StatusSeeOther {
+		t.Errorf("drill: status %d", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.drilled) == 1 })
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, "Working: drill") || !strings.Contains(body, "== prepare prod") {
+		t.Errorf("page should show the drill running with its log:\n%s", body)
+	}
+	close(op.release)
+}
+
+func sampleDrill() drills.Drill {
+	yes := true
+	at := time.Date(2026, 10, 4, 10, 0, 0, 0, time.Local)
+	pos := &drills.Position{Day: "2026-03-01", DayCount: 59, Customers: 1200, Savings: "£1,000.00", Lending: "£500.00"}
+	return drills.Drill{RunID: "run-7", Environment: "prod", From: "v0.7.0", To: "v0.8.0", CreatedAt: at, Observations: []drills.Observation{
+		{Moment: drills.Before, Version: "v0.7.0", ObservedAt: at},
+		{Moment: drills.Upgraded, Version: "v0.8.0", Position: pos, Restart: &drills.Restart{PreviousVersion: "", Downtime: 42 * time.Second, DowntimeKnown: true}},
+		{Moment: drills.RolledBack, Version: "v0.7.0", ObservedAt: at},
+		{Moment: drills.Forward, Version: "v0.8.0", Position: pos, Restart: &drills.Restart{PreviousVersion: "", Downtime: 39 * time.Second, DowntimeKnown: true, Intact: &yes}},
+	}}
+}
+
+func TestDrillsPageIsTheHistoryWithTheLineForTheRecord(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/drills")
+	if !strings.Contains(body, "No drills yet") {
+		t.Errorf("empty history:\n%s", body)
+	}
+	op.mu.Lock()
+	op.drills = []drills.Drill{sampleDrill()}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/drills")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{"v0.7.0 → v0.8.0", "42s", "39s", "unrecorded", "no about.json", "intact", `href="/workflows/run-7"`, "2026-10-04 prod: v0.7.0 → v0.8.0, upgraded 42s, forward 39s"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("drills page missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRunPageShowsTheStepsAndADrillsObservations(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: serving v0.7.0, expected v0.8.0", StartedAt: time.Now()}}
+	op.steps = map[string][]wf.StepResult{"run-7": {{StepName: "prepare", Status: wf.StatusCompleted, DurationNs: int64(3 * time.Second)}, {StepName: "upgrade", Status: wf.StatusFailed, Error: "serving v0.7.0, expected v0.8.0"}}}
+	op.drills = []drills.Drill{sampleDrill()}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/workflows/run-7")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{"prod v0.7.0→v0.8.0 2026-10-04", "failed", "prepare", "3s", "serving v0.7.0, expected v0.8.0", "Observations", "42s"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page missing %q:\n%s", want, body)
+		}
+	}
+	if code, _ := get(t, ts, "/workflows/nope"); code != 404 {
+		t.Errorf("unknown run: status %d", code)
+	}
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, `href="/workflows/run-7"`) {
+		t.Error("the runs table links each instance")
+	}
+}
+
+func TestExplorerIsServedInThePageLayoutWhenConfigured(t *testing.T) {
+	ts, _ := newTestServer(t)
+	if code, body := get(t, ts, "/internal/explorer"); code != 404 || strings.Contains(body, "DB Explorer") {
+		t.Errorf("no explorer configured: status %d", code)
+	}
+	var asked string
+	ts, _ = newTestServerWith(t, func(s *Server) {
+		s.Explorer = func(_ context.Context, rawURL string) string { asked = rawURL; return "<p>EXPLORER</p>" }
+	})
+	code, body := get(t, ts, "/internal/explorer/drills?page=2")
+	if code != 200 || !strings.Contains(body, "<p>EXPLORER</p>") || !strings.Contains(body, "navbar") || asked != "/internal/explorer/drills?page=2" {
+		t.Errorf("status %d asked %q:\n%s", code, asked, body)
+	}
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, `href="/internal/explorer"`) {
+		t.Error("the navbar links the explorer when there is one")
 	}
 }

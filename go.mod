@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.6.0
-	git.bytestone.uk/hum3/gobank-db v0.2.1
+	git.bytestone.uk/hum3/gobank-db v0.3.0
 	git.bytestone.uk/hum3/gobank-workflow v0.1.3
 	git.bytestone.uk/hum3/lofigui v0.17.40
 	github.com/aws/aws-sdk-go-v2 v1.47.1
@@ -54,5 +54,3 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace git.bytestone.uk/hum3/gobank-db => ../gobank-db

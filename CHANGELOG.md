@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-04
+
+ - Story 1i: rollback from the store (fetch a named tag) and a stop timeout that outlasts a day
+
 ### Added
 - `POST /fetch?tag=vX` (story 1i): makes a named release the next deploy,
   fetching it into the store if it is not there, so a rollback from

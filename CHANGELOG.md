@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
+ - Serving check outlasts the demo's resume; drills page shows each run's state and steps
+
 ### Fixed
 - The check after a start waits five minutes, not one, for the demo to
   answer: it rebuilds the bank from its database before it listens (a

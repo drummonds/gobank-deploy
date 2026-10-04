@@ -16,7 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - The Drills page shows each drill's run: its state and error, and the
   steps with how long each took, so a failed drill reads in full there
-  rather than only on the environments page
+  rather than only on the environments page; its link to the run page
+  reads "details" ("run" looked like a button)
 
 ## [0.6.0] - 2026-10-04
 

@@ -859,7 +859,7 @@ func TestDrillsPageIsTheHistoryWithTheLineForTheRecord(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"v0.7.0 → v0.8.0", "42s", "39s", "unrecorded", "no about.json", "intact", `href="/workflows/run-7"`, "2026-10-04 prod: v0.7.0 → v0.8.0, upgraded 42s, forward 39s"} {
+	for _, want := range []string{"v0.7.0 → v0.8.0", "42s", "39s", "unrecorded", "no about.json", "intact", `href="/workflows/run-7">details</a>`, "2026-10-04 prod: v0.7.0 → v0.8.0, upgraded 42s, forward 39s"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("drills page missing %q:\n%s", want, body)
 		}

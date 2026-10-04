@@ -11,7 +11,7 @@
       {{if not .drills}}<p class="has-text-grey">No drills yet. Drill an environment from the environments page when a newer release is out.</p>{{end}}
       {{range .drills}}
       <div class="box">
-        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.From}} → {{.To}} · <a href="/workflows/{{.RunID}}">run</a></p>
+        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.From}} → {{.To}} · <a href="/workflows/{{.RunID}}">details</a></p>
         {{with .Run}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
         {{if .Steps}}{{template "steps" .Steps}}{{end}}
         {{template "observations" .}}

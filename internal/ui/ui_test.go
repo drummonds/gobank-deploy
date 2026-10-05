@@ -18,6 +18,7 @@ import (
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 )
 
 // fakeOperator reports canned statuses and records actions. Actions block
@@ -41,6 +42,27 @@ type fakeOperator struct {
 	drilled   []deploy.Environment
 	drills    []drills.Drill
 	steps     map[string][]wf.StepResult
+	perfs     []demoCall
+	perfRuns  []perf.Run
+}
+
+func (f *fakeOperator) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	f.mu.Lock()
+	f.perfs = append(f.perfs, demoCall{env, scale})
+	f.mu.Unlock()
+	fmt.Fprintf(out, "== create %s at %s\n", env.Name, scale)
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (f *fakeOperator) Perfs(context.Context, int) ([]perf.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.perfRuns, nil
 }
 
 func (f *fakeOperator) Drill(ctx context.Context, env deploy.Environment, out io.Writer) error {
@@ -906,6 +928,70 @@ func TestRunPageShowsTheStepsAndADrillsObservations(t *testing.T) {
 	_, body = get(t, ts, "/")
 	if !strings.Contains(body, `href="/workflows/run-7"`) {
 		t.Error("the runs table links each instance")
+	}
+}
+
+// A performance run is started from its own form: a new environment at a
+// scale, measured and removed by the perf workflow, shown as a job while
+// it runs.
+func TestPerfRunStartsTheWorkflowAsAJob(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, page := get(t, ts, "/")
+	if !strings.Contains(page, `action="/perf"`) || !strings.Contains(page, `href="/perf"`) {
+		t.Errorf("page should offer a performance run and link the history:\n%s", page)
+	}
+	if code := post(t, ts, "/perf", url.Values{"name": {"prod"}, "scale": {"large"}}); code != http.StatusConflict {
+		t.Errorf("an existing environment: status %d, want 409", code)
+	}
+	if code := post(t, ts, "/perf", url.Values{"name": {"perf1"}, "scale": {"large"}}); code != http.StatusSeeOther {
+		t.Errorf("status %d, want 303", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.perfs) == 1 })
+	if op.perfs[0].Env.Name != "perf1" || op.perfs[0].Scale != "large" {
+		t.Errorf("perf run = %+v", op.perfs[0])
+	}
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, "Working: perf") || !strings.Contains(body, "== create perf1 at large") {
+		t.Errorf("page should show the run with its log:\n%s", body)
+	}
+	close(op.release)
+}
+
+func TestPerfRunNeedsABuilder(t *testing.T) {
+	ts, op := newTestServerWith(t, func(s *Server) { s.UpUnavailable = func() string { return "no store" } })
+	_, body := get(t, ts, "/")
+	if strings.Contains(body, `action="/perf"`) {
+		t.Error("page should not offer a performance run without a builder")
+	}
+	if code := post(t, ts, "/perf", url.Values{"name": {"perf1"}, "scale": {"small"}}); code != http.StatusForbidden {
+		t.Errorf("status %d, want 403", code)
+	}
+	if len(op.perfs) != 0 {
+		t.Fatal("the run must not start without a builder")
+	}
+}
+
+func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/perf")
+	if !strings.Contains(body, "No performance runs yet") {
+		t.Errorf("empty history:\n%s", body)
+	}
+	op.mu.Lock()
+	op.perfRuns = []perf.Run{{RunID: "run-9", Environment: "perf1", Scale: "large", ServerType: "cx53", MemoryGB: 32, Version: "v0.12.0",
+		CreatedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local), AddSpan: 10 * time.Minute, Customers: 48000, CustomersPerSec: 80.5,
+		DaysSpan: 10 * time.Minute, Days: 7, AccountDaysPer12h: 9_000_000, LastDay: 85 * time.Second, LastDayAccounts: 96000}}
+	op.runs = []wf.RunRecord{{ID: "run-9", WorkflowType: "perf", Key: "perf1 large 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/perf")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{"Tue 6 Oct 2026 09:00", "perf1", "large", "cx53", "32 GB", "v0.12.0", "48,000", "80.5", "9,000,000", "1m25s", "96,000", `href="/workflows/run-9"`,
+		"| 2026-10-06 | v0.12.0 | large | cx53: 32 GB | 48,000 | 80.5 | 7 | 9,000,000 | 1m25s over 96,000 accounts |"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("perf page missing %q:\n%s", want, body)
+		}
 	}
 }
 

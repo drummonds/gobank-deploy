@@ -14,6 +14,7 @@
     <div class="navbar-brand">
       <span class="navbar-item has-text-weight-bold">gobank environments</span>
       <a class="navbar-item" href="/drills">Drills</a>
+      <a class="navbar-item" href="/perf">Performance</a>
       {{if .explorer}}<a class="navbar-item" href="/internal/explorer">DB Explorer</a>{{end}}
       <a class="navbar-item" href="/about">About</a>
     </div>
@@ -47,6 +48,21 @@
           <div class="control"><button class="button is-small is-success">Create</button></div>
         </div>
         <small class="has-text-grey">starts billing; the environment is listed while it exists. "Remove after" runs the demo workflow: the server carries its removal time, so it goes even if this page restarts.</small>
+      </form>
+
+      <form method="post" action="/perf" hx-post="/perf" hx-target="#envs" hx-swap="outerHTML" hx-on::after-request="if (event.detail.successful) this.reset()" class="mb-5">
+        <label class="label is-small">Performance run</label>
+        <div class="field has-addons">
+          <div class="control"><input class="input is-small" type="text" name="name" placeholder="perf" pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" required title="lower-case letters, digits and hyphens"></div>
+          <div class="control"><div class="select is-small"><select name="scale">
+            <option value="small">small (cx23)</option>
+            <option value="medium">medium (cx33)</option>
+            <option value="large">large (cx53)</option>
+            <option value="xl">xl (ccx33)</option>
+          </select></div></div>
+          <div class="control"><button class="button is-small is-info">Measure</button></div>
+        </div>
+        <small class="has-text-grey">starts billing for about half an hour: a fresh environment at the scale, customers added flat out for ten minutes, days run for ten, both rates read off the demo, the server removed. The figures are on the <a href="/perf">Performance</a> page.</small>
       </form>
       {{end}}
       {{if .upUnavailable}}<p class="is-size-7 has-text-grey">Status and Down only: {{.upUnavailable}}.</p>{{end}}

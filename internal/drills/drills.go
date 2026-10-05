@@ -272,6 +272,16 @@ type Reading struct {
 	DayEndsIn time.Duration // zero when flat out or stopped
 	Position  *Position
 	Restart   *Restart
+
+	// The rates a performance run reads (gobank v0.12 onwards; zero
+	// before): customers added per second, live while a batch add runs
+	// and else the last batch's, and account days per 12h at the pass's
+	// whole-day rate, with the last day it is made of.
+	Adding            bool
+	CustomersPerSec   float64
+	AccountDaysPer12h int64
+	LastDayDuration   time.Duration
+	LastDayAccounts   int
 }
 
 // Observation is the reading recorded against a moment of the drill.

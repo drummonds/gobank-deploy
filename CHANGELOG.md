@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+ - The performance run as a workflow: a fresh environment at a scale, measured for twenty minutes, removed; a Performance page with the row for gobank's benchmark.md
+
+### Added
+- The **perf** workflow (story 1k): `create` a fresh environment at a
+  scale (an existing server is kept, so a failed run resumes on the same
+  box), `add` customers flat out in batches of 1,000 for ten minutes with
+  the rate taken from the demo batch by batch, `days` for ten minutes
+  reading account days per 12h and the last day it is made of, `remove`.
+  Started by **Measure** on the environments page (a fresh name and a
+  scale) or `perf <env> -scale` on the command line; kept in the `-db`
+  database with where it ran (scale, server type, RAM, gobank version),
+  its schema versioned in `perf_schema_migrations`. The **Performance**
+  page is the history, each run with its row for gobank's `benchmark.md`;
+  the run page shows a perf run's figures.
+- The console reads gobank v0.12's rates off `/about.json`
+  (`customers_per_sec`, `account_days_per_12h`, `adding_customers`,
+  `last_day_duration`, `last_day_accounts`) and drives the demo's forms:
+  the settings together (`SetSettings`), `AddCustomers`, `Start`, `Stop`.
+
 ## [0.9.0] - 2026-10-05
 
  - Drill accepts the day a stop finishes and the day a restart begins; sets the day length again after each hop

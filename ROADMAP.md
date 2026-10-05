@@ -68,6 +68,12 @@ inside the box first; expand/contract migrations through gobank-db.
       hydrogen), two components' schemas in one database (gobank-db
       `ApplyTo`), browsed with go-dbexplorer; a Drills page is the history
       with the line for each story's record. Closes issue #1
+- [x] (unreleased) Story 1k — The performance run as a workflow: a fresh
+      environment at a scale, the demo flat out, customers added for ten
+      minutes and days run for ten, the two rates (customers per second,
+      account days per 12h) read off gobank v0.12's `/about.json`, the
+      server removed; a Performance page with the row for gobank's
+      `benchmark.md`, and `perf <env> -scale` from the laptop
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

@@ -59,6 +59,14 @@
         <a href="/drills">Drills</a> page is the history, the DB Explorer the tables.</p>
       <figure><img src="/assets/drill-workflow.svg" alt="Drill workflow: prepare, before, upgrade, rollback, forward"></figure>
 
+      <h2 class="title is-5">The perf workflow</h2>
+      <p>"Measure" on the environments page runs gobank's performance run as a pipeline instance keyed by
+        environment, scale and date: a fresh environment at the scale, the demo set flat out, customers added for ten
+        minutes and days run for ten, the two rates read off <code>/about.json</code> — customers added per second and
+        account days per 12h — then the server removed. The <a href="/perf">Performance</a> page is the history, each
+        run with its line for gobank's <code>benchmark.md</code>.</p>
+      <figure><img src="/assets/perf-workflow.svg" alt="Perf workflow: create, add, days, remove"></figure>
+
       <h2 class="title is-5">Links</h2>
       <ul>
         <li><a href="https://gobank-deploy.docs.bytestone.uk/">Documentation</a> — the same diagrams with the tables behind them</li>

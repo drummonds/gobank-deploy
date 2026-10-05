@@ -57,6 +57,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/forge"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/store"
@@ -78,6 +79,11 @@ func usage() {
                                                        database FILE (default <-build>/gobank-deploy.db)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
+  gobank-deploy perf <env> [-scale small|large|...] [-db FILE]
+                                                       performance run: create <env> at the scale, add
+                                                       customers flat out for 10m, run days for 10m, read
+                                                       both rates off the demo, remove the server; the
+                                                       figures are kept in FILE and printed for benchmark.md
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -178,14 +184,15 @@ func main() {
 			}
 		}
 		factory := ui.DeployerFactory(newDeployer)
-		database, runs, drillStore, err := openDatabase(ctx, *dbFile)
+		database, runs, drillStore, perfStore, err := openDatabase(ctx, *dbFile)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer database.Close()
 		demo := &flows.Demo{Ops: factory, Store: runs}
 		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: drillStore}
-		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill}, envs)
+		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Store: runs, Perfs: perfStore}
+		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow}, envs)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -239,6 +246,25 @@ func main() {
 			printStatus(env, st)
 			printReleases(ctx, d)
 		}
+	case "perf":
+		fs := flag.NewFlagSet("perf", flag.ExitOnError)
+		scale := fs.String("scale", "small", "small|medium|large|xl or any hcloud server type")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the run is recorded in")
+		_ = fs.Parse(args)
+		var database *sql.DB
+		var runs *sqlstore.Store
+		var perfStore *perf.Store
+		database, runs, _, perfStore, err = openDatabase(ctx, *dbFile)
+		if err != nil {
+			break
+		}
+		defer database.Close()
+		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: runs, Perfs: perfStore}
+		if err = perfFlow.Run(ctx, env, *scale, os.Stdout); err == nil {
+			if list, lerr := perfStore.List(ctx, 1); lerr == nil && len(list) == 1 {
+				fmt.Println(ui.BenchmarkRow(list[0]))
+			}
+		}
 	default:
 		usage()
 	}
@@ -249,28 +275,33 @@ func main() {
 }
 
 // openDatabase opens the pglike file (created if absent, its directory
-// too) and brings both components' schemas up to date: gobank-workflow's
-// run records and this program's drills, each versioned in its own
-// migrations table.
-func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, error) {
+// too) and brings every component's schema up to date: gobank-workflow's
+// run records, this program's drills and its performance runs, each
+// versioned in its own migrations table.
+func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, *perf.Store, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	d, err := sql.Open("pglike", file)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
+		return nil, nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
 	}
 	runs, err := sqlstore.New(d)
 	if err != nil {
 		d.Close()
-		return nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
 	ds, err := drills.New(ctx, d)
 	if err != nil {
 		d.Close()
-		return nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
-	return d, runs, ds, nil
+	ps, err := perf.New(ctx, d)
+	if err != nil {
+		d.Close()
+		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	}
+	return d, runs, ds, ps, nil
 }
 
 // dnsFor is the Route 53 provider for domain, or nil (with a notice) when

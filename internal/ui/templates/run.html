@@ -12,6 +12,12 @@
       {{template "observations" .}}
       <p class="is-size-7">For the record: <code>{{.Summary}}</code></p>
       {{end}}
+      {{with .perf}}
+      <h2 class="title is-5">Figures</h2>
+      <p class="is-size-7">{{.Environment}} · {{.Scale}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}}</p>
+      {{template "figures" .}}
+      <p class="is-size-7">For benchmark.md: <code>{{.Row}}</code></p>
+      {{end}}
     </div>
   </section>
 </body>

@@ -94,3 +94,54 @@ func TestConsoleSetsTheDayLengthThroughTheSettingsForm(t *testing.T) {
 		t.Errorf("posted %v", posted)
 	}
 }
+
+// The perf run reads the two rates and drives the console as an operator
+// would: the settings form for the day length and customer ceiling
+// together, the add-customers form, the Run and Stop buttons.
+func TestConsoleReadsTheRatesAndDrivesTheSimulation(t *testing.T) {
+	const body = `{"version":"v0.12.0","settings":{"day_length":"0s","max_customers":1000000},
+"sim":{"running":true,"day_ends_in":"0s","adding_customers":true,"customers_per_sec":81.5,"account_days_per_12h":9000000,"last_day_duration":"1m25s","last_day_accounts":96000},
+"position":{"day":"2026-03-01","day_count":59,"customers":48000,"savings":"£1.00","lending":"£0.50"},"restarts":[]}`
+	var posts []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			r.ParseForm()
+			posts = append(posts, r.URL.Path+"?"+r.PostForm.Encode())
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		if r.URL.Path != "/about.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	c := &Console{}
+	rd, err := c.Read(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rd.Adding || rd.CustomersPerSec != 81.5 || rd.AccountDaysPer12h != 9_000_000 || rd.LastDayDuration != 85*time.Second || rd.LastDayAccounts != 96000 {
+		t.Errorf("rates = adding %v %.1f/s, %d account days, last day %s over %d", rd.Adding, rd.CustomersPerSec, rd.AccountDaysPer12h, rd.LastDayDuration, rd.LastDayAccounts)
+	}
+	for _, step := range []func() error{
+		func() error { return c.SetSettings(context.Background(), ts.URL, 0, 1_000_000) },
+		func() error { return c.AddCustomers(context.Background(), ts.URL, 1000) },
+		func() error { return c.Start(context.Background(), ts.URL) },
+		func() error { return c.Stop(context.Background(), ts.URL) },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"/settings?day_length=0s&max_customers=1000000", "/add-customers?n=1000", "/start?", "/stop?"}
+	if len(posts) != len(want) {
+		t.Fatalf("posts = %v, want %v", posts, want)
+	}
+	for i := range want {
+		if posts[i] != want[i] {
+			t.Errorf("post %d = %q, want %q", i, posts[i], want[i])
+		}
+	}
+}

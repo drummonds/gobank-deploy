@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	for _, d := range []wf.Definition{flows.DemoDefinition, flows.DrillDefinition} {
+	for _, d := range []wf.Definition{flows.DemoDefinition, flows.DrillDefinition, flows.PerfDefinition} {
 		name := string(d.Type) + "-workflow.d2"
 		if err := os.WriteFile(name, []byte(diagram.Definition(d)), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, err)

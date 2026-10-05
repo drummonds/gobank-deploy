@@ -25,6 +25,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 )
 
 //go:embed templates
@@ -61,6 +62,11 @@ type Operator interface {
 	Drills(ctx context.Context, limit int) ([]drills.Drill, error)
 	// Run is one workflow run with its steps; nil when there is none.
 	Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error)
+	// Perf runs gobank's performance run: a new environment at scale,
+	// measured and removed.
+	Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
+	// Perfs lists recent performance runs, most recent first.
+	Perfs(ctx context.Context, limit int) ([]perf.Run, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
@@ -68,6 +74,15 @@ type Ops struct {
 	DeployerFactory
 	Flows  *flows.Demo
 	Drill_ *flows.Drill
+	Perf_  *flows.Perf
+}
+
+func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	return o.Perf_.Run(ctx, env, scale, out)
+}
+
+func (o Ops) Perfs(ctx context.Context, limit int) ([]perf.Run, error) {
+	return o.Perf_.Perfs.List(ctx, limit)
 }
 
 func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -322,7 +337,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/drills.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/drills.html", "templates/perf.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -346,6 +361,8 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("POST /env/{env}/cancel", s.cancel)
 	s.mux.HandleFunc("POST /fetch", s.fetch)
 	s.mux.HandleFunc("GET /drills", s.drills)
+	s.mux.HandleFunc("POST /perf", s.perf)
+	s.mux.HandleFunc("GET /perf", s.perfs)
 	s.mux.HandleFunc("GET /workflows/{id}", s.run)
 	s.mux.HandleFunc("GET /internal/explorer", s.explorer)
 	s.mux.HandleFunc("GET /internal/explorer/", s.explorer)
@@ -536,6 +553,36 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.startCreate(w, r, deploy.Environment{Name: name})
+}
+
+// perf starts a performance run: a new environment named on the form,
+// created at its scale, measured and removed by the perf workflow. Like
+// create, it is listed while it has a job and then while it has a server.
+func (s *Server) perf(w http.ResponseWriter, r *http.Request) {
+	if why := s.upUnavailable(); why != "" {
+		s.fail(w, r, http.StatusForbidden, "performance run not available here: "+why)
+		return
+	}
+	name := r.FormValue("name")
+	if !envName.MatchString(name) {
+		s.fail(w, r, http.StatusBadRequest, fmt.Sprintf("environment name %q: use lower-case letters, digits and hyphens", name))
+		return
+	}
+	if _, exists := s.environment(r.Context(), name); exists {
+		s.fail(w, r, http.StatusConflict, name+": already an environment; a performance run wants a fresh one")
+		return
+	}
+	scale := r.FormValue("scale")
+	if scale == "" {
+		scale = "small"
+	}
+	env := deploy.Environment{Name: name}
+	run := func(ctx context.Context, out io.Writer) error { return s.op.Perf(ctx, env, scale, out) }
+	if err := s.start(env, "perf", run); err != nil {
+		s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: %v", env.Name, err))
+		return
+	}
+	s.done(w, r)
 }
 
 // removeAfter is the form's "remove" choice as a duration; zero is keep.
@@ -739,6 +786,69 @@ func (s *Server) drills(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "drills", map[string]any{"drills": views, "error": err})
 }
 
+// perfView is a performance run as the template sees it: the row, with
+// the figures formatted, and the line for gobank's benchmark.md.
+type perfView struct {
+	perf.Run
+	Date      string
+	Run_      *runView // the workflow run; nil when the store has lost it
+	Steps     []stepView
+	Memory    string // "32 GB"
+	Customers string // grouped
+	Rate      string // customers/s to one place; "" before the add span ran
+	Accounts  string // account days per 12h, grouped; "" before the days span ran
+	LastDay   string // "1m25s over 96,000 accounts"
+	Row       string // the markdown row for benchmark.md
+}
+
+func viewPerf(r perf.Run) perfView {
+	v := perfView{Run: r, Date: r.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04"), Memory: fmt.Sprintf("%g GB", r.MemoryGB), Customers: groupInt(int64(r.Customers))}
+	if r.AddSpan > 0 {
+		v.Rate = fmt.Sprintf("%.1f", r.CustomersPerSec)
+	}
+	if r.DaysSpan > 0 {
+		v.Accounts = groupInt(r.AccountDaysPer12h)
+		v.LastDay = fmt.Sprintf("%s over %s accounts", r.LastDay.Round(time.Second), groupInt(int64(r.LastDayAccounts)))
+	}
+	v.Row = fmt.Sprintf("| %s | %s | %s | %s: %s | %s | %s | %d | %s | %s |",
+		r.CreatedAt.Format("2006-01-02"), r.Version, r.Scale, r.ServerType, v.Memory, v.Customers, v.Rate, r.Days, v.Accounts, v.LastDay)
+	return v
+}
+
+// BenchmarkRow is the run's row for gobank's benchmark.md, as the
+// Performance page shows it and the command line prints it.
+func BenchmarkRow(r perf.Run) string { return viewPerf(r).Row }
+
+// groupInt writes n with thousands separators.
+func groupInt(n int64) string {
+	s := fmt.Sprint(n)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if neg {
+		return "-" + s
+	}
+	return s
+}
+
+// perfs is the history of performance runs, newest first, each with its
+// run's state and the line for gobank's benchmark.md.
+func (s *Server) perfs(w http.ResponseWriter, r *http.Request) {
+	list, err := s.op.Perfs(r.Context(), 50)
+	var views []perfView
+	for _, p := range list {
+		v := viewPerf(p)
+		if rec, steps, err := s.op.Run(r.Context(), p.RunID); err == nil && rec != nil {
+			rv := viewRun(*rec)
+			v.Run_, v.Steps = &rv, viewSteps(steps)
+		}
+		views = append(views, v)
+	}
+	s.render(w, "perf", map[string]any{"perfs": views, "error": err})
+}
+
 func viewSteps(steps []wf.StepResult) []stepView {
 	var out []stepView
 	for _, st := range steps {
@@ -765,6 +875,15 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 			for _, d := range list {
 				if d.RunID == rec.ID {
 					data["drill"] = viewDrill(d)
+				}
+			}
+		}
+	}
+	if rec.WorkflowType == flows.WorkflowPerf {
+		if list, err := s.op.Perfs(r.Context(), 200); err == nil {
+			for _, p := range list {
+				if p.RunID == rec.ID {
+					data["perf"] = viewPerf(p)
 				}
 			}
 		}

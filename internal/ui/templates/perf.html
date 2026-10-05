@@ -1,0 +1,33 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      <h1 class="title is-4">Performance runs</h1>
+      <p class="mb-4">gobank's <a href="https://gobank.docs.bytestone.uk/benchmark.html">performance runs</a> as this page made them:
+        an environment created at a scale, the demo set flat out, customers added for a span and days run for another,
+        the two rates read off <code>/about.json</code> — customers added per second (the demo's own rate, batch by batch) and
+        account days per 12h (the start-of-day pass's rate over the whole day) — then the server removed.
+        The row under each run is the line for <code>benchmark.md</code>.</p>
+      {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
+      {{if not .perfs}}<p class="has-text-grey">No performance runs yet. Start one from the environments page: a fresh name and a scale.</p>{{end}}
+      {{range .perfs}}
+      <div class="box">
+        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.Scale}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}} · <a href="/workflows/{{.RunID}}">details</a></p>
+        {{with .Run_}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
+        {{if .Steps}}{{template "steps" .Steps}}{{end}}
+        {{template "figures" .}}
+        <p class="is-size-7">For benchmark.md: <code>{{.Row}}</code></p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>
+{{define "figures"}}<table class="table is-narrow is-fullwidth is-size-7">
+          <thead><tr><th>Add span</th><th>Customers reached</th><th>Customers/s</th><th>Days span</th><th>Days run</th><th>Account days / 12h</th><th>Last day</th></tr></thead>
+          <tbody><tr>
+            <td>{{if .AddSpan}}{{.AddSpan}}{{else}}<span class="has-text-grey">not yet</span>{{end}}</td><td>{{.Customers}}</td><td>{{.Rate}}</td>
+            <td>{{if .DaysSpan}}{{.DaysSpan}}{{else}}<span class="has-text-grey">not yet</span>{{end}}</td><td>{{.Days}}</td><td>{{.Accounts}}</td><td>{{.LastDay}}</td>
+          </tr></tbody>
+        </table>{{end}}

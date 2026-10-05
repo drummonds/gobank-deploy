@@ -121,7 +121,25 @@ database, `-db`, default `<-build>/gobank-deploy.db`: on hydrogen that is
 `/perm/gobank-deploy/gobank-deploy.db`, beside the release store, so no
 flag is needed there. gobank-workflow's tables and this program's drill
 tables share the file, each component's schema versioned in its own
-migrations table (`schema_migrations`, `deploy_schema_migrations`).
+migrations table (`schema_migrations`, `deploy_schema_migrations`,
+`perf_schema_migrations`).
+
+### Performance runs: the perf workflow
+
+**Measure** on the environments page (or `tp secrets gobank-deploy perf
+<env> -scale large`) makes gobank's
+[performance run](https://gobank.docs.bytestone.uk/benchmark.html) as a
+workflow: `create` (up -create at the scale; a server that exists is kept,
+so a failed run resumes on the same box), `add` (the demo set flat out with
+room for a million customers, then batches of 1,000 customers for ten
+minutes, the rate taken from the demo batch by batch so this program's
+polling is not in it), `days` (Run for ten minutes, read account days per
+12h and the last day it is made of, Stop), `remove` (down). The two rates
+are gobank v0.12's `/about.json` `sim` block. Each run is kept in the `-db`
+database with where it ran — scale, server type, RAM, gobank version — and
+the **Performance** page is the history, each run with its row for
+gobank's `benchmark.md`. A run creates a billable server for about half an
+hour, so it is started on purpose, never by a schedule.
 
 ### Temporary environments: the demo workflow
 
@@ -134,8 +152,8 @@ so a failed stage is resumed by the next run and a finished one is final.
 The run records are in the `-db` database; what must survive is on the
 server itself, and every minute the page starts the workflow for any temporary
 server nobody is looking after, so a demo still goes after the page
-restarts. `demo-workflow.d2` and `drill-workflow.d2` (from `go run
-./cmd/flowd2`) draw the two workflows.
+restarts. `demo-workflow.d2`, `drill-workflow.d2` and `perf-workflow.d2`
+(from `go run ./cmd/flowd2`) draw the three workflows.
 
 Each environment gets the hostname `<env>.gobank.drummonds.net`: an A
 record in Route 53 (TTL 60s, since Hetzner reuses addresses) set on `up`

@@ -16,7 +16,8 @@ import (
 )
 
 // Console is the demo's simulation console over HTTP: about.json for what
-// the demo is doing, the settings form for the day length (gobank's
+// the demo is doing, and the console's own forms for what an operator
+// would press — the settings, the batch add, Run and Stop (gobank's
 // default session is the admin's, so no login is needed).
 type Console struct {
 	Timeout time.Duration // per request; defaults to 10s
@@ -30,8 +31,13 @@ type about struct {
 		MaxCustomers int    `json:"max_customers"`
 	} `json:"settings"`
 	Sim struct {
-		Running   bool   `json:"running"`
-		DayEndsIn string `json:"day_ends_in"`
+		Running           bool    `json:"running"`
+		DayEndsIn         string  `json:"day_ends_in"`
+		AddingCustomers   bool    `json:"adding_customers"`
+		CustomersPerSec   float64 `json:"customers_per_sec"`
+		AccountDaysPer12h int64   `json:"account_days_per_12h"`
+		LastDayDuration   string  `json:"last_day_duration"`
+		LastDayAccounts   int     `json:"last_day_accounts"`
 	} `json:"sim"`
 	Position struct {
 		Day       string `json:"day"`
@@ -88,9 +94,12 @@ func (c *Console) Read(ctx context.Context, base string) (drills.Reading, error)
 	}
 	dayLength, _ := time.ParseDuration(a.Settings.DayLength)
 	endsIn, _ := time.ParseDuration(a.Sim.DayEndsIn)
+	lastDay, _ := time.ParseDuration(a.Sim.LastDayDuration)
 	rd := drills.Reading{
 		Version: a.Version, About: true, Running: a.Sim.Running, DayLength: dayLength, DayEndsIn: endsIn,
 		Position: &drills.Position{Day: a.Position.Day, DayCount: a.Position.DayCount, Customers: a.Position.Customers, Savings: a.Position.Savings, Lending: a.Position.Lending},
+		Adding:   a.Sim.AddingCustomers, CustomersPerSec: a.Sim.CustomersPerSec, AccountDaysPer12h: a.Sim.AccountDaysPer12h,
+		LastDayDuration: lastDay, LastDayAccounts: a.Sim.LastDayAccounts,
 	}
 	if len(a.Restarts) > 0 {
 		r := a.Restarts[0]
@@ -112,8 +121,36 @@ func (c *Console) SetDayLength(ctx context.Context, base string, d time.Duration
 	if err != nil {
 		return err
 	}
-	form := url.Values{"day_length": {d.String()}, "max_customers": {strconv.Itoa(a.Settings.MaxCustomers)}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(base, "/")+"/settings", strings.NewReader(form.Encode()))
+	return c.SetSettings(ctx, base, d, a.Settings.MaxCustomers)
+}
+
+// SetSettings posts the settings form: the day length (zero is flat out)
+// and the customer ceiling together, as the page does.
+func (c *Console) SetSettings(ctx context.Context, base string, dayLength time.Duration, maxCustomers int) error {
+	return c.post(ctx, base, "/settings", url.Values{"day_length": {dayLength.String()}, "max_customers": {strconv.Itoa(maxCustomers)}})
+}
+
+// AddCustomers starts a batch add of n customers, as the dashboard's form
+// does; the demo reports it running at about.json until it is done.
+func (c *Console) AddCustomers(ctx context.Context, base string, n int) error {
+	return c.post(ctx, base, "/add-customers", url.Values{"n": {strconv.Itoa(n)}})
+}
+
+// Start presses Run: the day loop goes.
+func (c *Console) Start(ctx context.Context, base string) error {
+	return c.post(ctx, base, "/start", url.Values{})
+}
+
+// Stop presses Stop: the day loop ends, the day in progress left for the
+// next Run to resume.
+func (c *Console) Stop(ctx context.Context, base string) error {
+	return c.post(ctx, base, "/stop", url.Values{})
+}
+
+// post submits one of the console's forms and accepts the redirect it
+// answers with.
+func (c *Console) post(ctx context.Context, base, path string, form url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(base, "/")+path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -126,7 +163,7 @@ func (c *Console) SetDayLength(ctx context.Context, base string, d time.Duration
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("settings: %s", resp.Status)
+		return fmt.Errorf("%s: %s", strings.TrimPrefix(path, "/"), resp.Status)
 	}
 	return nil
 }

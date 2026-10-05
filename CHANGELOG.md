@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-05
+
+ - Drill accepts the day a stop finishes and the day a restart begins; sets the day length again after each hop
+
  - Drill accepts the day a stop finishes and the day a restart begins; sets the day length again after each hop
 
 ### Fixed

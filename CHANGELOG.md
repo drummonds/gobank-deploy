@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-06
+
+ - Story 1k: the performance run as a workflow (perf), a Performance page and perf CLI; console reads gobank v0.12 rates
+
  - The performance run as a workflow: a fresh environment at a scale, measured for twenty minutes, removed; a Performance page with the row for gobank's benchmark.md
 
 ### Added

@@ -42,6 +42,7 @@ type about struct {
 	} `json:"position"`
 	Restarts []struct {
 		PreviousVersion string `json:"previous_version"`
+		DayCount        int    `json:"day_count"`
 		Downtime        string `json:"downtime"`
 		Intact          *bool  `json:"intact"`
 	} `json:"restarts"`
@@ -93,7 +94,7 @@ func (c *Console) Read(ctx context.Context, base string) (drills.Reading, error)
 	}
 	if len(a.Restarts) > 0 {
 		r := a.Restarts[0]
-		rs := &drills.Restart{PreviousVersion: r.PreviousVersion, Intact: r.Intact}
+		rs := &drills.Restart{PreviousVersion: r.PreviousVersion, DayCount: r.DayCount, Intact: r.Intact}
 		if r.Downtime != "" {
 			if d, err := time.ParseDuration(r.Downtime); err == nil {
 				rs.Downtime, rs.DowntimeKnown = d, true

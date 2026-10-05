@@ -84,7 +84,8 @@ What a hop is gated on, and what is recorded but not gated:
 | restart row follows a release other than the one before the hop (an unrecorded one is accepted) | fail: follows X, expected Y |
 | downtime unknown | fail: the previous release did not stop cleanly |
 | handover not intact | fail: day or customers differ across the stop |
-| simulated day differs from the day before the drill | fail: landed on a day boundary |
+| restart row's day more than one past the last observation | fail: the run went on before the stop (a clean stop finishes only the day in progress) |
+| day now more than one past the restart row's | fail: the run went on after the start (a restart begins only one day) |
 | release without `about.json` | version checked; position and restart row recorded as absent |
 | customers, savings, lending differ from before | recorded side by side, not gated: the generator moves them within a day; the restart row already pins customers across the stop |
 | all of the above hold | the hop completes |

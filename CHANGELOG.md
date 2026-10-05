@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+ - Drill accepts the day a stop finishes and the day a restart begins; sets the day length again after each hop
+
+### Fixed
+- The drill failed its first hop on prod with "landed on a day boundary"
+  although the upgrade was sound: the demo's day length set by prepare
+  lasted only as long as the process, so v0.10.2 came back flat out and
+  ran two days before the reading. The gate pinned a property the demo
+  does not have: a clean stop finishes the day in progress and a restart
+  begins a new day, so the position moves on every hop. The hop now gates
+  on the restart row's day count being at most one past the last
+  observation (the stop) and the position at most one past that (the
+  start); further is the run going on at full speed. And the drill sets
+  the day length again after every hop, since a release before gobank
+  v0.10.3 forgets it on restart (gobank v0.10.3 records it with the run).
+
 ## [0.8.0] - 2026-10-05
 
  - Serving check waits while the service is alive, not for a fixed five minutes

@@ -39,7 +39,7 @@ func TestConsoleReadsTheDemoAtAboutJSON(t *testing.T) {
 	if rd.Position == nil || rd.Position.Day != "2026-03-01" || rd.Position.DayCount != 59 || rd.Position.Customers != 1200 || rd.Position.Savings != "£1,000.00" || rd.Position.Lending != "£500.00" {
 		t.Errorf("position = %+v", rd.Position)
 	}
-	if rs := rd.Restart; rs == nil || rs.PreviousVersion != "v0.7.0" || rs.Downtime != 42*time.Second || !rs.DowntimeKnown || rs.Intact == nil || !*rs.Intact {
+	if rs := rd.Restart; rs == nil || rs.PreviousVersion != "v0.7.0" || rs.DayCount != 59 || rs.Downtime != 42*time.Second || !rs.DowntimeKnown || rs.Intact == nil || !*rs.Intact {
 		t.Errorf("restart = %+v", rd.Restart)
 	}
 }

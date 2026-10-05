@@ -74,6 +74,7 @@ type Position struct {
 // handover was intact (the same day and customers on both sides).
 type Restart struct {
 	PreviousVersion string // "" when the previous process kept no record
+	DayCount        int    // the run's day count at this start, which an intact handover makes the stop's too
 	Downtime        time.Duration
 	DowntimeKnown   bool  // false after an unclean stop
 	Intact          *bool // nil when the record cannot say

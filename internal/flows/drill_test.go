@@ -65,21 +65,26 @@ func (o *drillOps) Up(_ context.Context, _ deploy.UpOptions, out io.Writer) erro
 // console is the demo as the drill reads and sets it. Each Up is a
 // restart: the reading after it names the version before as previous.
 type console struct {
-	ops        *drillOps
-	noAbout    map[string]bool // releases without about.json
-	dayLength  time.Duration
-	dayEnd     time.Time // when the day in progress ends
-	running    bool
-	day        string
-	dayCount   int
-	unclean    bool // the next restart row has no downtime
-	turnOnUp   int  // the day turns once this many ups have happened; 0 never
-	previous   string
-	lastServed string
-	seenUps    int
-	reads      int
-	setDay     []time.Duration
-	now        func() time.Time
+	ops       *drillOps
+	noAbout   map[string]bool // releases without about.json
+	dayLength time.Duration
+	dayEnd    time.Time // when the day in progress ends
+	running   bool
+	day       string
+	dayCount  int
+	unclean   bool // the next restart row has no downtime
+	// Each Up is a restart: the run advances daysBeforeStop days before
+	// the stop (the day in progress finishing is one) and daysAfterStart
+	// after it (the day a restart begins is one); stopCount is the day
+	// count the stop landed on, which the restart row carries.
+	daysBeforeStop, daysAfterStart, stopCount int
+	forgetsDayLength                          bool // a release before v0.10.3: the day length set on the console does not survive the restart
+	previous                                  string
+	lastServed                                string
+	seenUps                                   int
+	reads                                     int
+	setDay                                    []time.Duration
+	now                                       func() time.Time
 }
 
 func (c *console) Read(ctx context.Context, url string) (drills.Reading, error) {
@@ -88,13 +93,16 @@ func (c *console) Read(ctx context.Context, url string) (drills.Reading, error) 
 	if c.ops.ups > c.seenUps {
 		c.previous = c.lastServed
 		c.seenUps = c.ops.ups
+		c.stopCount = c.dayCount + c.daysBeforeStop
+		c.dayCount = c.stopCount + c.daysAfterStart
+		c.day = dayOf(c.dayCount)
+		if c.forgetsDayLength {
+			c.dayLength = 0
+		}
 	}
 	c.lastServed = v
 	if c.noAbout[v] {
 		return drills.Reading{}, ErrNoAbout
-	}
-	if c.turnOnUp > 0 && c.ops.ups >= c.turnOnUp {
-		c.day, c.dayCount = "2026-03-02", 60
 	}
 	rd := drills.Reading{Version: v, About: true, Running: c.running, DayLength: c.dayLength,
 		Position: &drills.Position{Day: c.day, DayCount: c.dayCount, Customers: 1200, Savings: "£1.00", Lending: "£0.50"}}
@@ -102,18 +110,23 @@ func (c *console) Read(ctx context.Context, url string) (drills.Reading, error) 
 		for !c.dayEnd.After(c.now()) { // the day turned: the next one begins
 			c.dayEnd = c.dayEnd.Add(c.dayLength)
 			c.dayCount++
-			c.day = "2026-03-02"
+			c.day = dayOf(c.dayCount)
 		}
 		rd.DayEndsIn = c.dayEnd.Sub(c.now())
 	}
 	if c.ops.ups > 0 {
 		intact := true
-		rd.Restart = &drills.Restart{PreviousVersion: c.previous, Downtime: 40 * time.Second, DowntimeKnown: !c.unclean, Intact: &intact}
+		rd.Restart = &drills.Restart{PreviousVersion: c.previous, DayCount: c.stopCount, Downtime: 40 * time.Second, DowntimeKnown: !c.unclean, Intact: &intact}
 		if c.noAbout[c.previous] {
 			rd.Restart.PreviousVersion, rd.Restart.Intact = "", nil
 		}
 	}
 	return rd, nil
+}
+
+// dayOf is the simulated date of day count n: day 59 is 2026-03-01.
+func dayOf(n int) string {
+	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, n).Format("2006-01-02")
 }
 
 func (c *console) SetDayLength(_ context.Context, _ string, d time.Duration) error {
@@ -309,14 +322,57 @@ func TestDrillFailsOnAnUncleanStop(t *testing.T) {
 	}
 }
 
-func TestDrillFailsWhenTheHopLandsOnADayBoundary(t *testing.T) {
+// A clean stop finishes the day in progress and a restart begins a new
+// day, so a hop may land one day on at the stop and one more after the
+// start. More than that is the run going on at full speed, which the
+// drill's day length is there to stop.
+func TestDrillAcceptsTheDayAStopFinishesAndTheDayARestartBegins(t *testing.T) {
 	h := newDrillHarness(t)
-	h.con.turnOnUp = 1 // the day turns during the upgrade
-	if err := h.run(); err == nil || !strings.Contains(err.Error(), "day") {
+	h.con.daysBeforeStop, h.con.daysAfterStart = 1, 1
+	if err := h.run(); err != nil {
+		t.Fatal(err)
+	}
+	rec := h.drillRecord(t)
+	if got := rec.Observations[3].Position.DayCount; got != 59+6 {
+		t.Errorf("day after three hops = %d; want 65", got)
+	}
+}
+
+func TestDrillFailsWhenTheRunWentOnBeforeTheStop(t *testing.T) {
+	h := newDrillHarness(t)
+	h.con.daysBeforeStop = 2
+	err := h.run()
+	if err == nil || !strings.Contains(err.Error(), "before the stop") {
 		t.Errorf("err = %v", err)
 	}
 	if h.steps(t)["upgrade"] != wf.StatusFailed {
 		t.Errorf("steps = %v", h.steps(t))
+	}
+}
+
+func TestDrillFailsWhenTheRunWentOnAfterTheStart(t *testing.T) {
+	h := newDrillHarness(t)
+	h.con.daysAfterStart = 2
+	err := h.run()
+	if err == nil || !strings.Contains(err.Error(), "after the start") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// A release before v0.10.3 forgets the day length on restart, so the
+// drill sets it again after every hop; otherwise the days race before the
+// next hop.
+func TestDrillSetsTheDayLengthAgainAfterAHopThatForgotIt(t *testing.T) {
+	h := newDrillHarness(t)
+	h.con.forgetsDayLength = true
+	if err := h.run(); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.con.setDay) != 3 || h.con.dayLength != 2*time.Hour {
+		t.Errorf("day length set %v, now %s; want 2h set after each of the three hops", h.con.setDay, h.con.dayLength)
+	}
+	if n := strings.Count(h.out.String(), "setting 2h0m0s"); n != 3 {
+		t.Errorf("log should say it set the day length after each hop, said so %d times:\n%s", n, h.out.String())
 	}
 }
 

@@ -105,8 +105,11 @@ when under 30m, then wait for a day with 10m left), observe the demo,
 upgrade to the newest release, roll back, forward again, observing after
 each hop. The demo is read at its `/about.json`; each hop is gated on the
 version serving, a restart row that follows the expected release with a
-known downtime and an intact handover, and the same simulated day as
-before. It is offered where the manual drill runs: a store to roll back
+known downtime and an intact handover, and the run no further on than a
+restart takes it (the stop finishes the day in progress, the start begins
+a new one: one day at each). The day length is set again after every hop,
+since a release before gobank v0.10.3 forgets it on restart. It is offered
+where the manual drill runs: a store to roll back
 from and a newer release than the one serving. A failed hop fails the run
 and says why; pressing Drill again the same day resumes from that hop.
 The **Drills** page is the history, one line per drill ready for the

@@ -215,13 +215,10 @@ func (r *drillRun) prepare(ctx context.Context) error {
 	if !rd.About {
 		return nil
 	}
-	minDay, dayLength, budget := or(r.d.MinDayLength, 30*time.Minute), or(r.d.DayLength, 2*time.Hour), or(r.d.Budget, 10*time.Minute)
-	if rd.DayLength < minDay {
-		fmt.Fprintf(r.out, "day length %s is under %s: setting %s so the upgrade lands mid-day\n", rd.DayLength, minDay, dayLength)
-		if err := r.d.Console.SetDayLength(ctx, st.URL, dayLength); err != nil {
-			return fmt.Errorf("setting the day length: %w", err)
-		}
+	if err := r.ensureDayLength(ctx, st.URL, rd); err != nil {
+		return err
 	}
+	budget := or(r.d.Budget, 10*time.Minute)
 	for waits := 0; ; waits++ {
 		_, rd, err := r.read(ctx)
 		if err != nil {
@@ -237,6 +234,22 @@ func (r *drillRun) prepare(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+// ensureDayLength sets the drill's day length when the demo's is under
+// the minimum. Prepare does it so the upgrade lands mid-day; every hop
+// does it again, since a release before gobank v0.10.3 forgets the
+// setting on restart and the days would race before the next hop.
+func (r *drillRun) ensureDayLength(ctx context.Context, url string, rd drills.Reading) error {
+	minDay, dayLength := or(r.d.MinDayLength, 30*time.Minute), or(r.d.DayLength, 2*time.Hour)
+	if rd.DayLength >= minDay {
+		return nil
+	}
+	fmt.Fprintf(r.out, "day length %s is under %s: setting %s so the upgrade lands mid-day\n", rd.DayLength, minDay, dayLength)
+	if err := r.d.Console.SetDayLength(ctx, url, dayLength); err != nil {
+		return fmt.Errorf("setting the day length: %w", err)
+	}
+	return nil
 }
 
 func (r *drillRun) before(ctx context.Context) error {
@@ -259,7 +272,8 @@ func (r *drillRun) before(ctx context.Context) error {
 // hop makes version the store's latest and redeploys, then observes the
 // demo and gates: serving version, a restart row following previous (or an
 // unrecorded process) with a known downtime and an intact handover, and
-// the same day as before.
+// the run no further on than a restart takes it: the stop finishes the
+// day in progress and the start begins a new one, so one day at each.
 func (r *drillRun) hop(ctx context.Context, name, version, previous string, moment drills.Moment) error {
 	fmt.Fprintf(r.out, "== %s to %s\n", name, version)
 	runID, err := r.record(ctx)
@@ -272,9 +286,14 @@ func (r *drillRun) hop(ctx context.Context, name, version, previous string, mome
 	if err := r.d.Ops.Up(ctx, deploy.UpOptions{Env: r.env}, r.out); err != nil {
 		return err
 	}
-	_, rd, err := r.read(ctx)
+	st, rd, err := r.read(ctx)
 	if err != nil {
 		return err
+	}
+	if rd.About {
+		if err := r.ensureDayLength(ctx, st.URL, rd); err != nil {
+			return err
+		}
 	}
 	if err := r.d.Drills.Observe(ctx, runID, rd.Observation(moment, r.d.now())); err != nil {
 		return err
@@ -303,12 +322,30 @@ func (r *drillRun) hop(ctx context.Context, name, version, previous string, mome
 	if err != nil {
 		return err
 	}
-	for _, o := range rec.Observations {
-		if o.Moment == drills.Before && o.Position != nil && rd.Position != nil && o.Position.Day != rd.Position.Day {
-			return fmt.Errorf("the hop landed on a day boundary: day %s before, %s now", o.Position.Day, rd.Position.Day)
+	if prev := lastPositionBefore(rec.Observations, moment); prev != nil && rd.Position != nil {
+		if n := rs.DayCount - prev.DayCount; n < 0 || n > 1 {
+			return fmt.Errorf("the run went on before the stop: day %d when last observed, day %d at the stop; a clean stop finishes only the day in progress", prev.DayCount, rs.DayCount)
+		}
+		if n := rd.Position.DayCount - rs.DayCount; n < 0 || n > 1 {
+			return fmt.Errorf("the run went on after the start: day %d at the start, day %d now; a restart begins only one day", rs.DayCount, rd.Position.DayCount)
 		}
 	}
 	return nil
+}
+
+// lastPositionBefore is the position observed at the latest moment before
+// m, nil when none was (a release without about.json).
+func lastPositionBefore(obs []drills.Observation, m drills.Moment) *drills.Position {
+	var pos *drills.Position
+	for _, o := range obs { // in moment order
+		if o.Moment == m {
+			break
+		}
+		if o.Position != nil {
+			pos = o.Position
+		}
+	}
+	return pos
 }
 
 func (r *drillRun) describe(rd drills.Reading) {

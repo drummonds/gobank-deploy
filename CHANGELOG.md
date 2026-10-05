@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- The environment's address on the main page opens the deployed site in
+  a new tab, so the dashboard stays put
+
 ### Fixed
 - The check after a start waits while the service is alive (active and
   not restarted by systemd), up to half an hour, instead of a fixed five

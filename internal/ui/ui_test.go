@@ -250,7 +250,7 @@ func TestPageShowsEachEnvironmentState(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"prod", "preprod", "Serving", "Not provisioned", "cx33", "10.0.0.9", "prod.gobank.test", `href="http://prod.gobank.test:1347/"`} {
+	for _, want := range []string{"prod", "preprod", "Serving", "Not provisioned", "cx33", "10.0.0.9", "prod.gobank.test", `href="http://prod.gobank.test:1347/" target="_blank" rel="noopener"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}

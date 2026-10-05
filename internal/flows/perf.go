@@ -136,12 +136,10 @@ func (p *Perf) RunAll(ctx context.Context, env deploy.Environment, scales []stri
 	var wg sync.WaitGroup
 	var mu sync.Mutex // one writer to out at a time
 	for i, scale := range scales {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			w := &prefixWriter{prefix: "[" + scale + "] ", out: out, mu: &mu}
 			errs[i] = p.Run(ctx, deploy.Environment{Name: env.Name + "-" + scale}, scale, w)
-		}()
+		})
 	}
 	wg.Wait()
 	var records []perf.Run

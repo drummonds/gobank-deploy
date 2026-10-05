@@ -15,7 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the rate taken from the demo batch by batch, `days` for ten minutes
   reading account days per 12h and the last day it is made of, `remove`.
   Started by **Measure** on the environments page (a fresh name and a
-  scale) or `perf <env> -scale` on the command line; kept in the `-db`
+  scale) or `perf <env>` on the command line, which measures every scale
+  at once (`-scales small,large` by default) on a server each, named
+  `<env>-<scale>`, and prints the rows at the end; kept in the `-db`
   database with where it ran (scale, server type, RAM, gobank version),
   its schema versioned in `perf_schema_migrations`. The **Performance**
   page is the history, each run with its row for gobank's `benchmark.md`;

@@ -1,10 +1,12 @@
 package flows
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
@@ -104,7 +106,7 @@ func (p *Perf) Run(ctx context.Context, env deploy.Environment, scale string, ou
 	if scale == "" {
 		scale = "small"
 	}
-	key := fmt.Sprintf("%s %s %s", env.Name, scale, p.now().Format("2006-01-02"))
+	key := p.key(env, scale)
 	run := &perfRun{p: p, env: env, scale: scale, key: key, out: out}
 	stages := []wf.Stage{
 		{Name: "create", Run: run.create},
@@ -123,6 +125,74 @@ func (p *Perf) Run(ctx context.Context, env deploy.Environment, scale string, ou
 		fmt.Fprintf(out, "%s already completed\n", key)
 	}
 	return nil
+}
+
+// RunAll measures every scale at once: an environment per scale, named
+// <env>-<scale>, each run in parallel on its own server with its log
+// lines prefixed by the scale. The records come back in the order asked
+// for; the error is every run's, joined.
+func (p *Perf) RunAll(ctx context.Context, env deploy.Environment, scales []string, out io.Writer) ([]perf.Run, error) {
+	errs := make([]error, len(scales))
+	var wg sync.WaitGroup
+	var mu sync.Mutex // one writer to out at a time
+	for i, scale := range scales {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := &prefixWriter{prefix: "[" + scale + "] ", out: out, mu: &mu}
+			errs[i] = p.Run(ctx, deploy.Environment{Name: env.Name + "-" + scale}, scale, w)
+		}()
+	}
+	wg.Wait()
+	var records []perf.Run
+	for _, scale := range scales {
+		run, err := p.Store.FindRunByKey(ctx, WorkflowPerf, p.key(deploy.Environment{Name: env.Name + "-" + scale}, scale))
+		if err != nil || run == nil {
+			continue
+		}
+		if rec, err := p.Perfs.Get(ctx, run.ID); err == nil && rec != nil {
+			records = append(records, *rec)
+		}
+	}
+	return records, errors.Join(errs...)
+}
+
+// key is the instance key of env's run at scale today.
+func (p *Perf) key(env deploy.Environment, scale string) string {
+	return fmt.Sprintf("%s %s %s", env.Name, scale, p.now().Format("2006-01-02"))
+}
+
+// prefixWriter starts every line it writes with a prefix, so the logs of
+// runs made at once can be told apart.
+type prefixWriter struct {
+	prefix  string
+	out     io.Writer
+	mu      *sync.Mutex
+	midLine bool
+}
+
+func (w *prefixWriter) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for len(b) > 0 {
+		if !w.midLine {
+			if _, err := io.WriteString(w.out, w.prefix); err != nil {
+				return 0, err
+			}
+			w.midLine = true
+		}
+		i := bytes.IndexByte(b, '\n')
+		if i < 0 {
+			_, err := w.out.Write(b)
+			return len(b), err
+		}
+		if _, err := w.out.Write(b[:i+1]); err != nil {
+			return 0, err
+		}
+		w.midLine = false
+		b = b[i+1:]
+	}
+	return 0, nil
 }
 
 // perfRun is one run: the key's instance and its record.

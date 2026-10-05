@@ -73,7 +73,8 @@ inside the box first; expand/contract migrations through gobank-db.
       minutes and days run for ten, the two rates (customers per second,
       account days per 12h) read off gobank v0.12's `/about.json`, the
       server removed; a Performance page with the row for gobank's
-      `benchmark.md`, and `perf <env> -scale` from the laptop
+      `benchmark.md`, and `perf <env>` from the laptop measuring every
+      scale at once on a server each
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

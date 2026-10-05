@@ -79,11 +79,12 @@ func usage() {
                                                        database FILE (default <-build>/gobank-deploy.db)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
-  gobank-deploy perf <env> [-scale small|large|...] [-db FILE]
-                                                       performance run: create <env> at the scale, add
-                                                       customers flat out for 10m, run days for 10m, read
-                                                       both rates off the demo, remove the server; the
-                                                       figures are kept in FILE and printed for benchmark.md
+  gobank-deploy perf <env> [-scales small,large] [-db FILE]
+                                                       performance run at every scale at once, one server
+                                                       each (<env>-<scale>): create, add customers flat out
+                                                       for 10m, run days for 10m, read both rates off the
+                                                       demo, remove; the figures are kept in FILE and the
+                                                       rows for gobank's benchmark.md printed at the end
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -248,8 +249,8 @@ func main() {
 		}
 	case "perf":
 		fs := flag.NewFlagSet("perf", flag.ExitOnError)
-		scale := fs.String("scale", "small", "small|medium|large|xl or any hcloud server type")
-		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the run is recorded in")
+		scales := fs.String("scales", "small,large", "scales to measure at once, one server each (small|medium|large|xl or any hcloud server type)")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
 		_ = fs.Parse(args)
 		var database *sql.DB
 		var runs *sqlstore.Store
@@ -259,10 +260,19 @@ func main() {
 			break
 		}
 		defer database.Close()
+		var list []string
+		for s := range strings.SplitSeq(*scales, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				list = append(list, s)
+			}
+		}
 		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: runs, Perfs: perfStore}
-		if err = perfFlow.Run(ctx, env, *scale, os.Stdout); err == nil {
-			if list, lerr := perfStore.List(ctx, 1); lerr == nil && len(list) == 1 {
-				fmt.Println(ui.BenchmarkRow(list[0]))
+		var records []perf.Run
+		records, err = perfFlow.RunAll(ctx, env, list, os.Stdout)
+		if len(records) > 0 {
+			fmt.Println("\nFor benchmark.md:")
+			for _, r := range records {
+				fmt.Println(ui.BenchmarkRow(r))
 			}
 		}
 	default:

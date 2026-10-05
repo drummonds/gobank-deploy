@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-05
+
+ - Serving check waits while the service is alive, not for a fixed five minutes
+
 ### Changed
 - The environment's address on the main page opens the deployed site in
   a new tab, so the dashboard stays put

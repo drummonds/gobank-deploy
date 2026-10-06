@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
  - Status gives the address when the hostname does not point at the server; create tries the next location when one has no capacity
 
+### Added
+- `perf` writes each run's row into gobank's `benchmark.md` (the `-src`
+  checkout; `-doc` to say where, `""` to only print), filling the empty
+  placeholder row for the scale or appending, so the performance doc is
+  updated by the run and published by the next gobank release.
+
 ### Changed
 - `large` is now ccx33 (8 dedicated vCPU, 32 GB) and `xl` ccx43 (16
   dedicated vCPU, 64 GB): a measurement on dedicated cores says whether

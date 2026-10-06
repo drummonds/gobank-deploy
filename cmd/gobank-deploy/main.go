@@ -79,12 +79,13 @@ func usage() {
                                                        database FILE (default <-build>/gobank-deploy.db)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
-  gobank-deploy perf <env> [-scales small,large] [-db FILE]
+  gobank-deploy perf <env> [-scales small,large] [-db FILE] [-doc PATH]
                                                        performance run at every scale at once, one server
                                                        each (<env>-<scale>): create, add customers flat out
                                                        for 10m, run days for 10m, read both rates off the
                                                        demo, remove; the figures are kept in FILE and the
-                                                       rows for gobank's benchmark.md printed at the end
+                                                       rows written into gobank's performance doc PATH
+                                                       (default <-src>/benchmark.md) for you to commit
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -251,6 +252,7 @@ func main() {
 		fs := flag.NewFlagSet("perf", flag.ExitOnError)
 		scales := fs.String("scales", "small,large", "scales to measure at once, one server each (small|medium|large|xl or any hcloud server type)")
 		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
+		doc := fs.String("doc", filepath.Join(*src, "benchmark.md"), "gobank's performance doc to put the rows into; \"\" to only print them")
 		_ = fs.Parse(args)
 		var database *sql.DB
 		var runs *sqlstore.Store
@@ -270,9 +272,18 @@ func main() {
 		var records []perf.Run
 		records, err = perfFlow.RunAll(ctx, env, list, os.Stdout)
 		if len(records) > 0 {
-			fmt.Println("\nFor benchmark.md:")
+			var rows []string
 			for _, r := range records {
-				fmt.Println(ui.BenchmarkRow(r))
+				rows = append(rows, ui.BenchmarkRow(r))
+			}
+			fmt.Println("\nFor benchmark.md:")
+			fmt.Println(strings.Join(rows, "\n"))
+			if *doc != "" {
+				if derr := updateBenchmarkDoc(*doc, rows); derr != nil {
+					fmt.Fprintln(os.Stderr, "benchmark.md not updated:", derr)
+				} else {
+					fmt.Printf("\n%s updated: commit it and release gobank so the doc is published\n", *doc)
+				}
 			}
 		}
 	default:
@@ -282,6 +293,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// updateBenchmarkDoc puts the rows into gobank's performance doc at path.
+func updateBenchmarkDoc(path string, rows []string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	out, err := perf.UpdateBenchmark(string(b), rows...)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(out), 0o644)
 }
 
 // openDatabase opens the pglike file (created if absent, its directory

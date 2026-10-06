@@ -128,8 +128,9 @@ migrations table (`schema_migrations`, `deploy_schema_migrations`,
 
 **Measure** on the environments page (one scale) or `tp secrets
 gobank-deploy perf <env>` (every scale at once: `-scales small,large` by
-default, one server each, named `<env>-<scale>`, the rows for
-`benchmark.md` printed at the end) makes gobank's
+default, one server each, named `<env>-<scale>`, the rows written into
+gobank's `benchmark.md` in the `-src` checkout — `-doc` to say where, or
+`""` to only print them — for you to commit and release) makes gobank's
 [performance run](https://gobank.docs.bytestone.uk/benchmark.html) as a
 workflow: `create` (up -create at the scale; a server that exists is kept,
 so a failed run resumes on the same box), `add` (the demo set flat out with

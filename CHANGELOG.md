@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- A **Workflows** tab: the engine's view of this program. Each workflow
+  it runs (demo, drill, perf) is shown from its definition, with its
+  diagram, its steps and the code behind each, the count of its instances
+  in every state and the instances themselves, newest first. An instance
+  page lays the recorded steps over the definition, so the steps not
+  reached are visible as such, and offers the instance as d2 with the
+  steps coloured by state (`/workflows/<id>/diagram.d2`) and, where the
+  explorer is configured, its step rows in the DB Explorer.
+
+### Changed
+- Every page shares one navbar, so the About page now has the Performance
+  and DB Explorer tabs it lacked.
+
 ## [0.11.0] - 2026-10-06
 
  - perf writes its rows into gobank benchmark.md; large is ccx33 and xl ccx43; status by address when the hostname does not point at the server; create tries other locations then down the ladder

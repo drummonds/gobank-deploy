@@ -1,23 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gobank environments — about</title>
-  <link rel="stylesheet" href="/assets/bulma.min.css">
-  <link rel="icon" href="/favicon.ico">
-</head>
+{{template "head" .}}
 <body>
-  <nav class="navbar is-primary" role="navigation" aria-label="main navigation">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold" href="/">gobank environments</a>
-      <a class="navbar-item" href="/drills">Drills</a>
-      <a class="navbar-item" href="/about">About</a>
-    </div>
-    <div class="navbar-end">
-      <div class="navbar-item"><span class="tag">{{.version}}</span></div>
-    </div>
-  </nav>
+  {{template "nav" .}}
 
   <section class="section">
     <div class="container content">
@@ -48,6 +31,8 @@
         by environment and expiry, created with the expiry as a label on the server, served until then, removed.
         Every minute the page starts the workflow for any temporary server nobody is looking after, so a restart
         does not leave one billing.</p>
+      <p>The <a href="/workflows">Workflows</a> page is the engine's view of all three workflows: each definition's
+        steps and code, with its instances in every state, each instance leading to its steps as they ran.</p>
       <figure><img src="/assets/demo-workflow.svg" alt="Demo workflow: create, serve, remove"></figure>
 
       <h2 class="title is-5">The drill workflow</h2>

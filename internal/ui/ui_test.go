@@ -140,6 +140,19 @@ func (f *fakeOperator) Runs(context.Context, int) ([]wf.RunRecord, error) {
 	return f.runs, nil
 }
 
+func (f *fakeOperator) Counts(context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	counts := map[wf.WorkflowType]wf.RunCounts{}
+	for _, r := range f.runs {
+		if counts[r.WorkflowType] == nil {
+			counts[r.WorkflowType] = wf.RunCounts{}
+		}
+		counts[r.WorkflowType][r.Status]++
+	}
+	return counts, nil
+}
+
 func (f *fakeOperator) Environments(context.Context) ([]deploy.Environment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1011,5 +1024,130 @@ func TestExplorerIsServedInThePageLayoutWhenConfigured(t *testing.T) {
 	_, body = get(t, ts, "/")
 	if !strings.Contains(body, `href="/internal/explorer"`) {
 		t.Error("the navbar links the explorer when there is one")
+	}
+}
+
+// --- The Workflows tab ----------------------------------------------------------
+
+// The Workflows page is the engine's view of this program: each workflow
+// it runs described from its definition (steps, code, diagram), with the
+// count of its instances in every state and the instances themselves.
+func TestWorkflowsPageDescribesEachDefinitionWithItsInstances(t *testing.T) {
+	ts, op := newTestServer(t)
+	for _, path := range []string{"/", "/drills", "/about", "/perf"} {
+		if _, body := get(t, ts, path); !strings.Contains(body, `href="/workflows"`) {
+			t.Errorf("%s has no Workflows tab", path)
+		}
+	}
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{
+		{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: service not answering", StartedAt: time.Now()},
+		{ID: "run-3", WorkflowType: "demo", Key: "demo@2026-09-27T14:00:00Z", Status: wf.StatusCompleted, StartedAt: time.Now().Add(-time.Hour), CompletedAt: time.Now()},
+		{ID: "run-2", WorkflowType: "demo", Key: "demo@2026-09-26T14:00:00Z", Status: wf.StatusFailed, Error: "create: out of stock", StartedAt: time.Now().Add(-25 * time.Hour)},
+	}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/workflows")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`id="demo"`, `id="drill"`, `id="perf"`,
+		"A temporary environment", "one instance per environment@expiry",
+		`src="/assets/drill-workflow.svg"`, `src="/assets/perf-workflow.svg"`,
+		"up -create with the expiry label", `href="https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"`,
+		`href="/workflows/run-7"`, `href="/workflows/run-3"`, `href="/workflows/run-2"`,
+		"service not answering", "out of stock",
+		"No instances yet",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("workflows page missing %q:\n%s", want, body)
+		}
+	}
+	// The demo section counts its two instances; the perf section has none.
+	demo := body[strings.Index(body, `id="demo"`):strings.Index(body, `id="drill"`)]
+	for _, want := range []string{"completed <strong>1</strong>", "failed <strong>1</strong>", "instances <strong>2</strong>"} {
+		if !strings.Contains(demo, want) {
+			t.Errorf("demo section missing %q:\n%s", want, demo)
+		}
+	}
+	if strings.Contains(demo, "No instances yet") {
+		t.Error("the demo section has instances")
+	}
+	// The engine's own definitions, which this program never runs, are not shown.
+	if strings.Contains(body, "daily_update") || strings.Contains(body, `id="release"`) {
+		t.Error("only this program's workflows belong on the page")
+	}
+}
+
+// An instance page lays the recorded steps over its definition: every
+// step in order, the ones not reached marked so, each with what it does;
+// and the instance is downloadable as d2 with the steps coloured by state.
+func TestRunPageShowsEveryDefinitionStepWithItsState(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: serving v0.7.0, expected v0.8.0", StartedAt: time.Now()}}
+	op.steps = map[string][]wf.StepResult{"run-7": {
+		{StepName: "prepare", Status: wf.StatusCompleted, DurationNs: int64(3 * time.Second)},
+		{StepName: "before", Status: wf.StatusCompleted, DurationNs: int64(time.Second)},
+		{StepName: "upgrade", Status: wf.StatusFailed, DurationNs: int64(80 * time.Second), Error: "serving v0.7.0, expected v0.8.0"},
+	}}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/workflows/run-7")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`href="/workflows#drill"`,
+		"<td>1</td><td><strong>prepare</strong>", "a day long enough to upgrade inside", "<td>completed</td><td>3s</td>",
+		"<td>3</td><td><strong>upgrade</strong>", "<td>failed</td><td>1m20s</td>",
+		"<td>4</td><td><strong>rollback</strong>", "<td>5</td><td><strong>forward</strong>", "not run",
+		`href="https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"`,
+		`href="/workflows/run-7/diagram.d2"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page missing %q:\n%s", want, body)
+		}
+	}
+	if n := strings.Count(body, "not run"); n != 2 {
+		t.Errorf("rollback and forward were not run; %d steps marked", n)
+	}
+	resp, err := ts.Client().Get(ts.URL + "/workflows/run-7/diagram.d2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	d2, _ := io.ReadAll(resp.Body)
+	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != 200 || !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("diagram: status %d, content type %q", resp.StatusCode, ct)
+	}
+	for _, want := range []string{"prepare -> before -> upgrade -> rollback -> forward", "upgrade.class: failed", "rollback.class: not_run", "prepare.class: completed"} {
+		if !strings.Contains(string(d2), want) {
+			t.Errorf("instance d2 missing %q:\n%s", want, d2)
+		}
+	}
+	if code, _ := get(t, ts, "/workflows/nope/diagram.d2"); code != 404 {
+		t.Errorf("unknown run's diagram: status %d", code)
+	}
+}
+
+// With the explorer configured, an instance links to its rows in the
+// workflow_steps table.
+func TestRunPageLinksItsStepsInTheExplorerWhenConfigured(t *testing.T) {
+	ts, op := newTestServerWith(t, func(s *Server) {
+		s.Explorer = func(_ context.Context, rawURL string) string { return "<p>explorer " + rawURL + "</p>" }
+	})
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/workflows/run-7")
+	if !strings.Contains(body, `href="/internal/explorer/workflow_steps?filter=run_id&amp;value=run-7"`) {
+		t.Errorf("run page does not link the explorer:\n%s", body)
+	}
+	ts2, op2 := newTestServer(t)
+	op2.mu.Lock()
+	op2.runs = op.runs
+	op2.mu.Unlock()
+	if _, body := get(t, ts2, "/workflows/run-7"); strings.Contains(body, "/internal/explorer") {
+		t.Error("no explorer, no link")
 	}
 }

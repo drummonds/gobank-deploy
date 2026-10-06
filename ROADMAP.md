@@ -75,6 +75,11 @@ inside the box first; expand/contract migrations through gobank-db.
       server removed; a Performance page with the row for gobank's
       `benchmark.md`, and `perf <env>` from the laptop measuring every
       scale at once on a server each
+- [x] (unreleased) Story 1l — A Workflows tab: the engine's view of this
+      program's three workflows from their definitions, with instance
+      counts by state, the instances, and each instance's steps laid over
+      its definition (not-run steps visible), downloadable as d2. The
+      vantage point for making the workflows better
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys

@@ -94,6 +94,14 @@ Every drill is kept with its observations in the page's pglike database
 beside the workflow runs; the Drills page is the history, the DB Explorer
 the tables.
 
+## The Workflows page
+
+The engine's view of the three workflows: each definition's diagram, steps
+and code, the count of its instances in every state, and the instances
+themselves, newest first. An instance page lays the steps as they ran over
+the definition, so a step not reached shows as *not run*, and offers the
+instance as d2 with the steps coloured by state.
+
 ## Environment states
 
 | Server | Answers | Version vs available | State on the page | Offered |

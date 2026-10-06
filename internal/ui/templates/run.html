@@ -3,10 +3,20 @@
   {{template "nav" .}}
   <section class="section">
     <div class="container">
+      <nav class="breadcrumb is-small" aria-label="breadcrumbs"><ul>
+        <li><a href="/workflows#{{.run.Type}}">Workflows</a></li>
+        <li class="is-active"><a href="#" aria-current="page">{{.run.Type}} · {{.run.Key}}</a></li>
+      </ul></nav>
       <h1 class="title is-4">{{.run.Type}} · {{.run.Key}}</h1>
-      <p class="mb-4">State <strong>{{.run.Status}}</strong>, started {{.run.Started}}{{if .run.Error}} <span class="has-text-danger">— {{.run.Error}}</span>{{end}}.
+      <p class="mb-4">State <strong>{{.run.Status}}</strong>, started {{.run.Started}}{{if .run.Took}}, took {{.run.Took}}{{end}}{{if .run.Error}} <span class="has-text-danger">— {{.run.Error}}</span>{{end}}.
         A failed step is retried by the next run of the same instance; completed steps are never repeated.</p>
-      {{template "steps" .steps}}
+      {{with .definition}}
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>#</th><th>Step</th><th>Does</th><th>State</th><th>Took</th><th>Error</th></tr></thead>
+        <tbody>{{range .Steps}}<tr><td>{{.Number}}</td><td><strong>{{.Name}}</strong>{{if .Source}} <a href="{{.Source}}">code</a>{{end}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td class="has-text-danger">{{.Error}}</td></tr>{{end}}</tbody>
+      </table>
+      {{else}}{{template "steps" .steps}}{{end}}
+      <p class="is-size-7"><a href="/workflows/{{.run.ID}}/diagram.d2">This instance as d2</a>, steps coloured by state{{if .explorerSteps}} · <a href="{{.explorerSteps}}">its step rows in the DB explorer</a>{{end}}.</p>
       {{with .drill}}
       <h2 class="title is-5">Observations</h2>
       {{template "observations" .}}

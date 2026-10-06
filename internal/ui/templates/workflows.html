@@ -1,0 +1,36 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      <h1 class="title is-4">Workflows</h1>
+      <p class="mb-4">What this program runs on <a href="https://gobank-workflow.docs.bytestone.uk/">gobank-workflow</a>:
+        each workflow is a pipeline of steps recorded as one keyed instance, so a failed step is resumed by the next run
+        of the same instance and a finished one is final. Each picture is the definition; the table under it is its
+        instances, newest first, each leading to its steps and their state.</p>
+      {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
+      {{range .definitions}}
+      <div class="box" id="{{.Type}}">
+        <h2 class="title is-5">{{.Type}} <span class="has-text-weight-normal has-text-grey">— one instance per {{.InstanceKey}}</span></h2>
+        <p>{{.Description}}</p>
+        <figure class="my-4"><img src="/assets/{{.Type}}-workflow.svg" alt="{{.Type}} steps"></figure>
+        <table class="table is-narrow is-fullwidth is-size-7">
+          <thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead>
+          <tbody>{{range .Steps}}<tr><td>{{.Number}}</td><td><strong>{{.Name}}</strong></td><td>{{.Description}}</td><td>{{if .Source}}<a href="{{.Source}}">code</a>{{end}}</td></tr>{{end}}</tbody>
+        </table>
+        <div class="tags">
+          {{range .Counts}}<span class="tag">{{.Status}} <strong>{{.N}}</strong></span>{{end}}
+          <span class="tag is-dark">instances <strong>{{.Total}}</strong></span>
+        </div>
+        {{if .Runs}}
+        <table class="table is-narrow is-fullwidth is-size-7">
+          <thead><tr><th>Instance</th><th>State</th><th>Started</th><th>Took</th><th>Error</th></tr></thead>
+          <tbody>{{range .Runs}}<tr><td><a href="/workflows/{{.ID}}">{{.Key}}</a></td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Took}}</td><td class="has-text-danger">{{.Error}}</td></tr>{{end}}</tbody>
+        </table>
+        {{else}}<p class="is-size-7 has-text-grey">No instances yet.</p>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>

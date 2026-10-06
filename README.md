@@ -116,6 +116,14 @@ The **Drills** page is the history, one line per drill ready for the
 story's record; each run's steps are at `/workflows/<id>`, the tables at
 `/internal/explorer`.
 
+The **Workflows** page is the engine's view of all three workflows: each
+definition with its diagram, its steps and the code behind each, the
+count of its instances in every state and the instances themselves,
+newest first. An instance page lays the steps as they ran over the
+definition, so a step not reached shows as *not run*, and offers the
+instance as d2 with the steps coloured by state
+(`/workflows/<id>/diagram.d2`) for `d2 diagram.d2 out.svg`.
+
 The page keeps its workflow runs and drills in a pglike (SQLite file)
 database, `-db`, default `<-build>/gobank-deploy.db`: on hydrogen that is
 `/perm/gobank-deploy/gobank-deploy.db`, beside the release store, so no
@@ -207,8 +215,9 @@ forgotten first because Hetzner reuses addresses.
 - `internal/remote` — ssh `Dialer` with host-key pinning, Go `Builder`,
   HTTP `Prober`, and the demo's `Console` (its `/about.json` and settings).
 - `internal/ui` — the lofigui page: states, create / redeploy / down / cancel,
-  one job per environment with its log, and an About page with the
-  component diagrams; tested against a fake `Operator`.
+  one job per environment with its log; the Drills, Performance and
+  Workflows pages and an About page with the component diagrams; tested
+  against a fake `Operator`.
 - `internal/flows` — the workflows on gobank-workflow's pipeline runner:
   the temporary demo environment, and gobank's upgrade drill.
 - `internal/drills` — the drill record: each drill with what the demo

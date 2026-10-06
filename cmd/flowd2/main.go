@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"os"
 
-	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/diagram"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 )
 
 func main() {
-	for _, d := range []wf.Definition{flows.DemoDefinition, flows.DrillDefinition, flows.PerfDefinition} {
+	for _, d := range flows.Definitions {
 		name := string(d.Type) + "-workflow.d2"
 		if err := os.WriteFile(name, []byte(diagram.Definition(d)), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, err)

@@ -238,7 +238,7 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 		t.Fatalf("records = %v, %v", list, err)
 	}
 	rec := list[0]
-	if rec.RunID != runs[0].ID || rec.Environment != "perf" || rec.Scale != "large" || rec.ServerType != "cx53" || rec.MemoryGB != 32 || rec.Version != "v0.12.0" {
+	if rec.RunID != runs[0].ID || rec.Environment != "perf" || rec.Scale != "large" || rec.ServerType != "ccx33" || rec.MemoryGB != 32 || rec.Version != "v0.12.0" {
 		t.Errorf("where it ran = %+v", rec)
 	}
 	if rec.AddSpan != 10*time.Minute || rec.Customers != 10_000 || rec.CustomersPerSec < 16 || rec.CustomersPerSec > 17 {

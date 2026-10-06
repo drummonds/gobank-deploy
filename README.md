@@ -15,7 +15,7 @@ explicit act (`-create`), and deleting it is what stops billing.
 
 ```sh
 tp secrets gobank-deploy up preprod -create              # cx23: 2 vCPU / 4 GB
-tp secrets gobank-deploy up preprod -create -scale large # cx53: 16 vCPU / 32 GB
+tp secrets gobank-deploy up preprod -create -scale large # ccx33: 8 dedicated vCPU / 32 GB
 tp secrets gobank-deploy up preprod                      # redeploy binary only
 tp secrets gobank-deploy status preprod
 tp secrets gobank-deploy down preprod                    # asks; -y to skip
@@ -171,13 +171,15 @@ for A records under the domain, UPSERT and DELETE (on top of
 `_acme-challenge` TXT records, is refused with AccessDenied and the deploy
 carries on by address.
 
-Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
-(ccx33), or any `hcloud server-type list` name. `cax*` types build for
-arm64. When Hetzner has no capacity for the type ("error during
-placement"), create tries fsn1, nbg1 and hel1 in turn, then the next size
-down (cx53, cx43, cx33, cx23; ccx33 falls back into that range) at every
-location again; the server's actual type is what status and a perf run
-report.
+Scale presets: `small` (cx23), `medium` (cx33), `large` (ccx33: 8
+dedicated vCPU, 32 GB, so a measurement sees cores that are really there),
+`xl` (ccx43: 16 dedicated vCPU, 64 GB), or any `hcloud server-type list`
+name. `cax*` types build for arm64. When Hetzner has no capacity for the
+type ("error during placement"), create tries fsn1, nbg1 and hel1 in turn,
+then the next size down the ladder (ccx43, ccx33, cx53, cx43, cx33, cx23)
+at every location again; the server's actual type is what status and a
+perf run report. The ladder is a first cut, to be revised once there is
+performance data.
 
 `up` sizes the demo's memory to the box: `GOBANK_MEMORY_LIMIT` is set to
 half the server type's RAM (PostgreSQL shares the box) in

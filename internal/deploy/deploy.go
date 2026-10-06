@@ -316,9 +316,9 @@ func ServerType(scale string) (typ, goarch string) {
 	case "medium":
 		typ = "cx33" // 4 vCPU / 8 GB shared x86
 	case "large":
-		typ = "cx53" // 16 vCPU / 32 GB shared x86
+		typ = "ccx33" // 8 dedicated vCPU / 32 GB: cores that are really there, for a measurement
 	case "xl":
-		typ = "ccx33" // 8 dedicated vCPU / 32 GB
+		typ = "ccx43" // 16 dedicated vCPU / 64 GB
 	default:
 		typ = scale
 	}
@@ -659,16 +659,15 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) 
 	}
 }
 
-// sizeLadder is the shared x86 range, largest first; a type outside it
-// has no size to step down to.
-var sizeLadder = []string{"cx53", "cx43", "cx33", "cx23"}
+// sizeLadder is the range a type steps down through when no location has
+// it, largest first: the dedicated line, then the shared x86 line. A type
+// outside it has no size to step down to. A first cut: the performance
+// data will say whether the order is right.
+var sizeLadder = []string{"ccx43", "ccx33", "cx53", "cx43", "cx33", "cx23"}
 
 // sizeDown is the next smaller type in the ladder, or "" at the bottom or
 // off it.
 func sizeDown(typ string) string {
-	if typ == "ccx33" { // dedicated: fall back to the shared range
-		return "cx53"
-	}
 	for i, t := range sizeLadder {
 		if t == typ && i+1 < len(sizeLadder) {
 			return sizeLadder[i+1]

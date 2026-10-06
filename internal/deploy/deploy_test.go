@@ -376,7 +376,7 @@ func TestCreateTriesTheNextLocationWhenOneHasNoCapacity(t *testing.T) {
 	if srv.Location != "nbg1" || len(h.cloud.created) != 2 || h.cloud.created[0].Location != "fsn1" || h.cloud.created[1].Location != "nbg1" {
 		t.Errorf("server in %s after creates %+v; want fsn1 tried then nbg1", srv.Location, h.cloud.created)
 	}
-	if !strings.Contains(h.out.String(), "no capacity for cx53 in fsn1: trying nbg1") {
+	if !strings.Contains(h.out.String(), "no capacity for ccx33 in fsn1: trying nbg1") {
 		t.Errorf("output should say why the location changed:\n%s", h.out.String())
 	}
 
@@ -398,16 +398,16 @@ func TestCreateTriesTheNextLocationWhenOneHasNoCapacity(t *testing.T) {
 func TestCreateStepsDownASizeWhenNoLocationHasIt(t *testing.T) {
 	h := newHarness()
 	for _, loc := range []string{"fsn1", "nbg1", "hel1"} {
-		h.cloud.full["cx53@"+loc] = true
+		h.cloud.full["ccx33@"+loc] = true
 	}
 	srv, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "large", Create: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if srv.Type != "cx43" || srv.Location != "fsn1" || len(h.cloud.created) != 4 {
-		t.Errorf("server %s in %s after %d creates; want cx43 in fsn1 after three cx53 tries", srv.Type, srv.Location, len(h.cloud.created))
+	if srv.Type != "cx53" || srv.Location != "fsn1" || len(h.cloud.created) != 4 {
+		t.Errorf("server %s in %s after %d creates; want cx53 in fsn1 after three ccx33 tries", srv.Type, srv.Location, len(h.cloud.created))
 	}
-	if !strings.Contains(h.out.String(), "no capacity for cx53 anywhere: trying cx43") {
+	if !strings.Contains(h.out.String(), "no capacity for ccx33 anywhere: trying cx53") {
 		t.Errorf("output should say the size changed:\n%s", h.out.String())
 	}
 
@@ -443,8 +443,8 @@ func TestServerTypeScalePresets(t *testing.T) {
 	cases := []struct{ scale, typ, goarch string }{
 		{"small", "cx23", "amd64"},
 		{"medium", "cx33", "amd64"},
-		{"large", "cx53", "amd64"},
-		{"xl", "ccx33", "amd64"},
+		{"large", "ccx33", "amd64"},
+		{"xl", "ccx43", "amd64"},
 		{"cax31", "cax31", "arm64"},
 		{"ccx43", "ccx43", "amd64"},
 	}

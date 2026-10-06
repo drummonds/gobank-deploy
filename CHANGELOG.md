@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
  - Status gives the address when the hostname does not point at the server; create tries the next location when one has no capacity
 
+### Changed
+- `large` is now ccx33 (8 dedicated vCPU, 32 GB) and `xl` ccx43 (16
+  dedicated vCPU, 64 GB): a measurement on dedicated cores says whether
+  the demo uses them, which shared vCPUs cannot. The capacity ladder is
+  ccx43, ccx33, cx53, cx43, cx33, cx23, a first cut to revise with the
+  performance data.
+
 ### Fixed
 - The first `perf` run failed twice over. Status reported the hostname URL
   although the DNS change had been refused (the AWS key `tp secrets`
@@ -17,9 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the address, which also keeps the page's link and the drill honest when
   a name is stale. And Hetzner had no capacity for a cx53 in fsn1 ("error
   during placement, resource_unavailable"); the deployer now tries its
-  locations in order, fsn1, nbg1, hel1, then the next size down (cx53,
-  cx43, cx33, cx23; xl's ccx33 falls back into that range) at every
-  location again, and fails only when the smallest is full everywhere. A
+  locations in order, fsn1, nbg1, hel1, then the next size down the ladder
+  at every location again, and fails only when the smallest is full
+  everywhere. A
   smaller box beats none, and the server's actual type is what a perf
   run records.
 

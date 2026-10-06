@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-06
+
+ - perf writes its rows into gobank benchmark.md; large is ccx33 and xl ccx43; status by address when the hostname does not point at the server; create tries other locations then down the ladder
+
  - Status gives the address when the hostname does not point at the server; create tries the next location when one has no capacity
 
 ### Added

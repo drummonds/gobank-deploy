@@ -21,6 +21,7 @@ type fakeCloud struct {
 	created   []CreateSpec
 	deleted   []string
 	fwDeleted []string
+	full      map[string]bool // locations with no capacity for anything
 }
 
 func newFakeCloud() *fakeCloud {
@@ -28,6 +29,7 @@ func newFakeCloud() *fakeCloud {
 		servers:   map[string]*Server{},
 		firewalls: map[string]bool{},
 		sshKeys:   []string{"laptop", "jeeves"},
+		full:      map[string]bool{},
 	}
 }
 
@@ -37,6 +39,9 @@ func (c *fakeCloud) Server(_ context.Context, name string) (*Server, error) {
 
 func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, error) {
 	c.created = append(c.created, spec)
+	if c.full[spec.Location] {
+		return nil, fmt.Errorf("%w: error during placement (resource_unavailable)", ErrNoCapacity)
+	}
 	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4, Labels: spec.Labels}
 	c.servers[spec.Name] = s
 	return s, nil
@@ -190,10 +195,17 @@ func newHarness() *harness {
 	return h
 }
 
-// withDNS gives the harness a DNS provider for the gobank.test domain.
+// withDNS gives the harness a DNS provider for the gobank.test domain, and
+// a resolver that answers from its records, as the world would.
 func (h *harness) withDNS() *fakeDNS {
 	dns := &fakeDNS{records: map[string]string{}}
 	h.d.DNS, h.d.Domain = dns, "gobank.test"
+	h.d.Resolve = func(_ context.Context, host string) ([]string, error) {
+		if ip, ok := dns.records[host]; ok {
+			return []string{ip}, nil
+		}
+		return nil, errors.New("no such host")
+	}
 	return dns
 }
 
@@ -309,9 +321,10 @@ func TestARefusedDNSChangeIsAWarningNotAFailure(t *testing.T) {
 	}
 }
 
-func TestStatusGivesTheHostnameWhenThereIsDNS(t *testing.T) {
+func TestStatusGivesTheHostnameWhenItPointsAtTheServer(t *testing.T) {
 	h := newHarness()
-	h.withDNS()
+	dns := h.withDNS()
+	dns.records["prod.gobank.test"] = "10.0.0.7"
 	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
 	st, err := h.d.Status(context.Background(), prod)
 	if err != nil {
@@ -322,6 +335,60 @@ func TestStatusGivesTheHostnameWhenThereIsDNS(t *testing.T) {
 	}
 	if h.probe.url != "http://10.0.0.7:1347/" {
 		t.Errorf("probed %q: the address is what is known to work before DNS propagates", h.probe.url)
+	}
+}
+
+// A hostname the deploy could not set (DNS refused, or not yet
+// propagated), or one left pointing at an address Hetzner has since given
+// to someone else, is no way to reach the environment: status gives the
+// address instead, so whatever reads the URL — the page's link, the
+// drill, a performance run — reaches the box.
+func TestStatusIsByAddressWhenTheNameDoesNotPointAtTheServer(t *testing.T) {
+	h := newHarness()
+	dns := h.withDNS()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7"}
+	st, err := h.d.Status(context.Background(), prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Host != "" || st.URL != "http://10.0.0.7:1347/" {
+		t.Errorf("name not set: status = %+v, want by address", st)
+	}
+	dns.records["prod.gobank.test"] = "10.0.0.8" // stale: someone else's server now
+	st, _ = h.d.Status(context.Background(), prod)
+	if st.Host != "" || st.URL != "http://10.0.0.7:1347/" {
+		t.Errorf("name stale: status = %+v, want by address", st)
+	}
+}
+
+// --- Capacity -----------------------------------------------------------------
+
+// Hetzner sometimes has no capacity for a server type at a location
+// ("error during placement"): the next location is tried, in order, and
+// only when every one is full does create fail.
+func TestCreateTriesTheNextLocationWhenOneHasNoCapacity(t *testing.T) {
+	h := newHarness()
+	h.cloud.full["fsn1"] = true
+	srv, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "large", Create: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.Location != "nbg1" || len(h.cloud.created) != 2 || h.cloud.created[0].Location != "fsn1" || h.cloud.created[1].Location != "nbg1" {
+		t.Errorf("server in %s after creates %+v; want fsn1 tried then nbg1", srv.Location, h.cloud.created)
+	}
+	if !strings.Contains(h.out.String(), "no capacity for cx53 in fsn1: trying nbg1") {
+		t.Errorf("output should say why the location changed:\n%s", h.out.String())
+	}
+
+	h = newHarness()
+	for _, loc := range []string{"fsn1", "nbg1", "hel1"} {
+		h.cloud.full[loc] = true
+	}
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "large", Create: true}); !errors.Is(err, ErrNoCapacity) {
+		t.Errorf("every location full: err = %v, want ErrNoCapacity", err)
+	}
+	if len(h.cloud.servers) != 0 {
+		t.Error("nothing should be left billing")
 	}
 }
 

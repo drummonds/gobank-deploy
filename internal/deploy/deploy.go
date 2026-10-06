@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -221,16 +222,22 @@ var (
 	ErrNoSSHKeys = errors.New("no ssh keys in the cloud project; add one first")
 	// ErrNotServing: the service did not answer after deployment.
 	ErrNotServing = errors.New("service not answering")
+	// ErrNoCapacity: the provider has no capacity for the server type at
+	// the location right now; the deployer tries its other locations.
+	ErrNoCapacity = errors.New("no capacity for this server type at the location")
 )
 
+// defaultLocations are tried in order when creating a server: the
+// provider is sometimes out of a type at one location.
+var defaultLocations = []string{"fsn1", "nbg1", "hel1"}
+
 const (
-	defaultImage    = "ubuntu-24.04"
-	defaultLocation = "fsn1"
-	servicePort     = "1347"
-	binaryPath      = "/opt/gobank/demo"
-	serviceName     = "gobank-demo"
-	sshAttempts     = 60
-	retryDelay      = 5 * time.Second
+	defaultImage = "ubuntu-24.04"
+	servicePort  = "1347"
+	binaryPath   = "/opt/gobank/demo"
+	serviceName  = "gobank-demo"
+	sshAttempts  = 60
+	retryDelay   = 5 * time.Second
 	// servingWait is the ceiling on the check after a start. The demo
 	// rebuilds the bank from its database before it listens (a minute and
 	// a half at four thousand days, growing with the history), so the
@@ -263,10 +270,14 @@ type Deployer struct {
 	DNS    DNS
 	Domain string
 
-	Image    string // defaults to ubuntu-24.04
-	Location string // defaults to fsn1
-	Out      io.Writer
-	Sleep    func(time.Duration) // defaults to time.Sleep
+	Image     string   // defaults to ubuntu-24.04
+	Locations []string // tried in order when one has no capacity; defaults to fsn1, nbg1, hel1
+	Out       io.Writer
+	Sleep     func(time.Duration) // defaults to time.Sleep
+	// Resolve looks a hostname up, as the world would; nil means the
+	// system resolver. Status gives the hostname only when it points at
+	// the server, else the address.
+	Resolve func(ctx context.Context, host string) ([]string, error)
 }
 
 // UpOptions selects the environment, its size and whether creation is allowed.
@@ -364,6 +375,22 @@ func (d *Deployer) publicURL(env Environment, srv *Server, named bool) string {
 		return serviceURL(host)
 	}
 	return serviceURL(srv.IP)
+}
+
+// named reports whether the environment's hostname points at its server
+// now: set by a deploy, propagated, and not left over from an earlier
+// server at an address the provider has since reused.
+func (d *Deployer) named(ctx context.Context, env Environment, srv *Server) bool {
+	host := d.hostname(env)
+	if host == "" {
+		return false
+	}
+	resolve := d.Resolve
+	if resolve == nil {
+		resolve = net.DefaultResolver.LookupHost
+	}
+	addrs, err := resolve(ctx, host)
+	return err == nil && slices.Contains(addrs, srv.IP)
 }
 
 func (d *Deployer) printf(format string, args ...any) {
@@ -588,28 +615,34 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) 
 	}
 
 	typ, _ := ServerType(o.Scale)
-	image, location := d.Image, d.Location
+	image, locations := d.Image, d.Locations
 	if image == "" {
 		image = defaultImage
 	}
-	if location == "" {
-		location = defaultLocation
+	if len(locations) == 0 {
+		locations = defaultLocations
 	}
-	d.printf("== create server %s (%s, %s)\n", name, typ, location)
-	srv, err := d.Cloud.CreateServer(ctx, CreateSpec{
-		Name:     name,
-		Type:     typ,
-		Image:    image,
-		Location: location,
-		Firewall: name,
-		SSHKeys:  keys,
-		UserData: cloudInit,
-		Labels:   labels(o, appPassword),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create server: %w", err)
+	for i, location := range locations {
+		d.printf("== create server %s (%s, %s)\n", name, typ, location)
+		srv, err := d.Cloud.CreateServer(ctx, CreateSpec{
+			Name:     name,
+			Type:     typ,
+			Image:    image,
+			Location: location,
+			Firewall: name,
+			SSHKeys:  keys,
+			UserData: cloudInit,
+			Labels:   labels(o, appPassword),
+		})
+		if err == nil {
+			return srv, nil
+		}
+		if !errors.Is(err, ErrNoCapacity) || i == len(locations)-1 {
+			return nil, fmt.Errorf("create server: %w", err)
+		}
+		d.printf("no capacity for %s in %s: trying %s\n", typ, location, locations[i+1])
 	}
-	return srv, nil
+	return nil, errors.New("create server: no locations to try")
 }
 
 func labels(o UpOptions, appPassword string) map[string]string {
@@ -735,8 +768,13 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	}
 	// Probe by address: it works before the hostname has propagated.
 	version, serving := d.Probe.Probe(ctx, serviceURL(srv.IP))
+	named := d.named(ctx, env, srv)
+	var host string
+	if named {
+		host = d.hostname(env)
+	}
 	return Status{
-		Server: srv, Host: d.hostname(env), URL: d.publicURL(env, srv, true),
+		Server: srv, Host: host, URL: d.publicURL(env, srv, named),
 		Serving: serving, Version: version, Available: d.Build.Available(),
 		AppPassword: srv.AppPassword(),
 	}, nil

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+ - Status gives the address when the hostname does not point at the server; create tries the next location when one has no capacity
+
+### Fixed
+- The first `perf` run failed twice over. Status reported the hostname URL
+  although the DNS change had been refused (the AWS key `tp secrets`
+  supplies, the LAN DNS user, may not change the gobank zone), so the
+  workflow could not reach a demo that was serving by address; status now
+  gives the hostname only when it resolves to the server's address, else
+  the address, which also keeps the page's link and the drill honest when
+  a name is stale. And Hetzner had no capacity for a cx53 in fsn1 ("error
+  during placement, resource_unavailable"); the deployer now tries its
+  locations in order, fsn1, nbg1, hel1, and fails only when every one is
+  full.
+
 ## [0.10.0] - 2026-10-06
 
  - Story 1k: the performance run as a workflow (perf), a Performance page and perf CLI; console reads gobank v0.12 rates

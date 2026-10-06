@@ -126,6 +126,9 @@ func (h *Cloud) CreateServer(ctx context.Context, spec deploy.CreateSpec) (*depl
 		Firewalls:  []*hcloud.ServerCreateFirewall{{Firewall: *fw}},
 	})
 	if err != nil {
+		if hcloud.IsError(err, hcloud.ErrorCodeResourceUnavailable) {
+			return nil, fmt.Errorf("%w: %v", deploy.ErrNoCapacity, err)
+		}
 		return nil, err
 	}
 	actions := append([]*hcloud.Action{res.Action}, res.NextActions...)

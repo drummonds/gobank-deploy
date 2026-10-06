@@ -167,7 +167,11 @@ the one whose name is the domain's longest suffix, so `drummonds.net`.
 
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for
-arm64.
+arm64. When Hetzner has no capacity for the type ("error during
+placement"), create tries fsn1, nbg1 and hel1 in turn, then the next size
+down (cx53, cx43, cx33, cx23; ccx33 falls back into that range) at every
+location again; the server's actual type is what status and a perf run
+report.
 
 `up` sizes the demo's memory to the box: `GOBANK_MEMORY_LIMIT` is set to
 half the server type's RAM (PostgreSQL shares the box) in

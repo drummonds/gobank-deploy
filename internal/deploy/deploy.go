@@ -622,27 +622,59 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) 
 	if len(locations) == 0 {
 		locations = defaultLocations
 	}
-	for i, location := range locations {
-		d.printf("== create server %s (%s, %s)\n", name, typ, location)
-		srv, err := d.Cloud.CreateServer(ctx, CreateSpec{
-			Name:     name,
-			Type:     typ,
-			Image:    image,
-			Location: location,
-			Firewall: name,
-			SSHKeys:  keys,
-			UserData: cloudInit,
-			Labels:   labels(o, appPassword),
-		})
-		if err == nil {
-			return srv, nil
+	// Every location for the type asked for, then the next size down at
+	// every location again: a smaller box beats no box, and the server's
+	// actual type is what is recorded.
+	for {
+		var err error
+		for i, location := range locations {
+			d.printf("== create server %s (%s, %s)\n", name, typ, location)
+			var srv *Server
+			srv, err = d.Cloud.CreateServer(ctx, CreateSpec{
+				Name:     name,
+				Type:     typ,
+				Image:    image,
+				Location: location,
+				Firewall: name,
+				SSHKeys:  keys,
+				UserData: cloudInit,
+				Labels:   labels(o, appPassword),
+			})
+			if err == nil {
+				return srv, nil
+			}
+			if !errors.Is(err, ErrNoCapacity) {
+				return nil, fmt.Errorf("create server: %w", err)
+			}
+			if i < len(locations)-1 {
+				d.printf("no capacity for %s in %s: trying %s\n", typ, location, locations[i+1])
+			}
 		}
-		if !errors.Is(err, ErrNoCapacity) || i == len(locations)-1 {
+		smaller := sizeDown(typ)
+		if smaller == "" {
 			return nil, fmt.Errorf("create server: %w", err)
 		}
-		d.printf("no capacity for %s in %s: trying %s\n", typ, location, locations[i+1])
+		d.printf("no capacity for %s anywhere: trying %s\n", typ, smaller)
+		typ = smaller
 	}
-	return nil, errors.New("create server: no locations to try")
+}
+
+// sizeLadder is the shared x86 range, largest first; a type outside it
+// has no size to step down to.
+var sizeLadder = []string{"cx53", "cx43", "cx33", "cx23"}
+
+// sizeDown is the next smaller type in the ladder, or "" at the bottom or
+// off it.
+func sizeDown(typ string) string {
+	if typ == "ccx33" { // dedicated: fall back to the shared range
+		return "cx53"
+	}
+	for i, t := range sizeLadder {
+		if t == typ && i+1 < len(sizeLadder) {
+			return sizeLadder[i+1]
+		}
+	}
+	return ""
 }
 
 func labels(o UpOptions, appPassword string) map[string]string {

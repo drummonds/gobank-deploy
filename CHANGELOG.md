@@ -17,8 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the address, which also keeps the page's link and the drill honest when
   a name is stale. And Hetzner had no capacity for a cx53 in fsn1 ("error
   during placement, resource_unavailable"); the deployer now tries its
-  locations in order, fsn1, nbg1, hel1, and fails only when every one is
-  full.
+  locations in order, fsn1, nbg1, hel1, then the next size down (cx53,
+  cx43, cx33, cx23; xl's ccx33 falls back into that range) at every
+  location again, and fails only when the smallest is full everywhere. A
+  smaller box beats none, and the server's actual type is what a perf
+  run records.
 
 ## [0.10.0] - 2026-10-06
 

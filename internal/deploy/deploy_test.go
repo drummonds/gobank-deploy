@@ -21,7 +21,7 @@ type fakeCloud struct {
 	created   []CreateSpec
 	deleted   []string
 	fwDeleted []string
-	full      map[string]bool // locations with no capacity for anything
+	full      map[string]bool // "loc" with no capacity for anything, or "type@loc" for that type
 }
 
 func newFakeCloud() *fakeCloud {
@@ -39,7 +39,7 @@ func (c *fakeCloud) Server(_ context.Context, name string) (*Server, error) {
 
 func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, error) {
 	c.created = append(c.created, spec)
-	if c.full[spec.Location] {
+	if c.full[spec.Location] || c.full[spec.Type+"@"+spec.Location] {
 		return nil, fmt.Errorf("%w: error during placement (resource_unavailable)", ErrNoCapacity)
 	}
 	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4, Labels: spec.Labels}
@@ -389,6 +389,39 @@ func TestCreateTriesTheNextLocationWhenOneHasNoCapacity(t *testing.T) {
 	}
 	if len(h.cloud.servers) != 0 {
 		t.Error("nothing should be left billing")
+	}
+}
+
+// When no location has the type asked for, the next size down is tried,
+// at every location again, down to the smallest: a measurement on a
+// smaller box beats none, and the server's actual type is on record.
+func TestCreateStepsDownASizeWhenNoLocationHasIt(t *testing.T) {
+	h := newHarness()
+	for _, loc := range []string{"fsn1", "nbg1", "hel1"} {
+		h.cloud.full["cx53@"+loc] = true
+	}
+	srv, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "large", Create: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.Type != "cx43" || srv.Location != "fsn1" || len(h.cloud.created) != 4 {
+		t.Errorf("server %s in %s after %d creates; want cx43 in fsn1 after three cx53 tries", srv.Type, srv.Location, len(h.cloud.created))
+	}
+	if !strings.Contains(h.out.String(), "no capacity for cx53 anywhere: trying cx43") {
+		t.Errorf("output should say the size changed:\n%s", h.out.String())
+	}
+
+	h = newHarness()
+	h.cloud.full["cx23@fsn1"] = true // a raw type, not a preset: no size to step down to
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "cx23", Create: true}); err != nil {
+		t.Fatalf("a raw type still tries the other locations: %v", err)
+	}
+	h = newHarness()
+	for _, loc := range []string{"fsn1", "nbg1", "hel1"} {
+		h.cloud.full["cx23@"+loc] = true
+	}
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true}); !errors.Is(err, ErrNoCapacity) {
+		t.Errorf("the smallest type full everywhere: err = %v, want ErrNoCapacity", err)
 	}
 }
 

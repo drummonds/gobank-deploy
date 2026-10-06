@@ -163,7 +163,13 @@ and removed on `down`. `-dns DOMAIN` changes the domain, `-dns ""` turns
 it off. It needs `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`tp secrets`
 on the laptop, the gokrazy `Environment` on the appliance, as gokcaddy);
 without them DNS is skipped and the start-up says so. The hosted zone is
-the one whose name is the domain's longest suffix, so `drummonds.net`.
+the one whose name is the domain's longest suffix, so `drummonds.net`. The
+key's IAM policy must allow `route53:ChangeResourceRecordSets` on that zone
+for A records under the domain, UPSERT and DELETE (on top of
+`ListHostedZones`, `ListHostedZonesByName`, `ListResourceRecordSets` and
+`GetChange`); a key scoped to another use, such as the LAN Caddy's
+`_acme-challenge` TXT records, is refused with AccessDenied and the deploy
+carries on by address.
 
 Scale presets: `small` (cx23), `medium` (cx33), `large` (cx53), `xl`
 (ccx33), or any `hcloud server-type list` name. `cax*` types build for

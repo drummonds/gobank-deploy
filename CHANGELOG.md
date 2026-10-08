@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-08
+
+ - Release prep
+
 ## [0.12.0] - 2026-10-06
 
  - A Workflows tab: each workflow from its definition, its instance counts and instances, steps laid over the definition

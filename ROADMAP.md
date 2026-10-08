@@ -80,6 +80,35 @@ inside the box first; expand/contract migrations through gobank-db.
       counts by state, the instances, and each instance's steps laid over
       its definition (not-run steps visible), downloadable as d2. The
       vantage point for making the workflows better
+- [ ] Story 1m — The release as a pipeline, keyed by version: one
+      instance per gobank tag spanning tp release (check, bump, changelog,
+      tag, push: the laptop, where the working tree and the human are) and
+      this engine (everything after the tag is a fact in the forge). The
+      engine polls the Forgejo for a new tag on the minute tick the demo
+      workflow already uses, no webhook and no inbound path, so hydrogen
+      stays the engine; `post_release` becomes optional. Stages: `build`
+      (a throwaway builder server clones the tag and builds demo for amd64
+      and arm64, since `cmd/demo`'s replace is `..` and works from a clean
+      clone; attached to the Forgejo release, so goreleaser leaves the
+      laptop; built once, never on the target box, so prod gets the same
+      binary as preprod), `fetch`, `deploy preprod`, `drill` (Story 1j as
+      a stage), the automatic gates (the drill's own, then Story 3's),
+      `promote` (a person), `deploy prod`, `report` (the outcome as a
+      comment or status on the Forgejo release). The ideas taken from
+      Woodpecker: the forge as the trigger, the definition held apart from
+      the execution with `when` conditions, status back to the forge, a
+      log per step, a build worker with a toolchain; not its containers,
+      YAML or plugins. Past Woodpecker, which has no approval step: a
+      manual gate that waits days across a restart, so the runner gets a
+      persisted waiting status re-entered by the tick, the same shape as
+      the temporary environments. Which gates apply is a decision table
+      on the bump kind (patch versus minor) with a per-run override, in
+      the repo and rendered on the Workflows tab, so a skipped gate is
+      visible. Lands before the gobank prerequisite, with promote being
+      today's redeploy of prod; Stories 2 and 3 slot in as stages and
+      gates. Open: who may press promote — logins and roles may come from
+      gobank's own, ADR-0002 stage 2, rather than Caddy `basic_auth` at
+      the page
 - [ ] Story 2 — Snapshot: copy prod's database into preprod over ssh
 - [ ] Story 3 — Gates: version, schema, invariants (account count and
       total balances unchanged, trial balance balances), BFF journeys
@@ -101,6 +130,20 @@ inside the box first; expand/contract migrations through gobank-db.
   orchestrator may want to become a general deploy tool, with the
   environment and release vocabulary kept and the gobank specifics
   (the demo's console, the Hetzner box) behind an interface
+- The engine on Hetzner, so environments can be managed and shown when
+  the house is off: gokrazy on a cx23 from the `~/gokrazy/hetzner`
+  instance (rescue mode + `dd`, proven 2026-09) with gokcaddy, tailscaled,
+  mkfs and the update UI on 1961; Tailscale for management and `gok
+  update`, a Hetzner firewall allowing 22 and 1961 from the tailnet only,
+  Caddy `basic_auth` at `deploy.gobank.drummonds.net` for demos (the page
+  shows app passwords and has Down buttons, so that is the floor). The
+  store refills itself from the Forgejo, so the server is deleted after
+  use and rebuilt in minutes. No code change. Prerequisite: the gobank
+  environments in their own Hetzner project with their own token —
+  tokens scope to a project, and today's reaches woodpecker-ci (the
+  Forgejo and docs host), which the engine's UI could then delete.
+  Open: whether demo viewers go on the tailnet, which removes the public
+  port altogether
 
 - Separate database box: the app's memory share rises from 50% of the
   box (see `appShareWithLocalPostgres`) once PostgreSQL is elsewhere;

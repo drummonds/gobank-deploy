@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- An admin password per environment (gobank story 1.7.1, the staff
+  login): `up` generates one for a new server, and for a server without
+  one on its next redeploy, keeps it on the server's labels beside the app
+  password, writes it as `GOBANK_ADMIN_PASSWORD` in the deploy env, and
+  `status` and the ui show it, so a tester can log the staff web in as
+  `admin`.
+
 ## [0.13.0] - 2026-10-08
 
  - Release prep

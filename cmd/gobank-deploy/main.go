@@ -449,5 +449,8 @@ func printStatus(env deploy.Environment, st deploy.Status) {
 	if st.AppPassword != "" {
 		fmt.Printf("app:    any customer ID, password %s (BFF under %sv1/)\n", st.AppPassword, strings.TrimSuffix(st.URL, "/")+"/")
 	}
+	if st.AdminPassword != "" {
+		fmt.Printf("staff:  login admin, password %s\n", st.AdminPassword)
+	}
 	fmt.Printf("note:   server bills until deleted — tp secrets gobank-deploy down %s\n", env.Name)
 }

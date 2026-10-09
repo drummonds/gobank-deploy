@@ -80,6 +80,11 @@ inside the box first; expand/contract migrations through gobank-db.
       counts by state, the instances, and each instance's steps laid over
       its definition (not-run steps visible), downloadable as d2. The
       vantage point for making the workflows better
+- [x] (unreleased) Story 1n — Admin password: the demo's staff web needs a
+      login from gobank v0.28.0 (story 1.7.1), its first admin's password
+      coming from `GOBANK_ADMIN_PASSWORD`. `up` generates one per
+      environment as it does the app password, labels the server with it,
+      writes it beside the app password, and `status` and the ui show it
 - [ ] Story 1m — The release as a pipeline, keyed by version: one
       instance per gobank tag spanning tp release (check, bump, changelog,
       tag, push: the laptop, where the working tree and the human are) and

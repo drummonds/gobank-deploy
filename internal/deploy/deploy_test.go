@@ -1097,7 +1097,7 @@ func TestStopTimeoutOutlastsADay(t *testing.T) {
 	if !strings.Contains(cloudInit, want) {
 		t.Errorf("cloud-init unit lacks %s", want)
 	}
-	if script := installScript("", ""); !strings.Contains(script, want) || !strings.Contains(script, "grep -q 'TimeoutStopSec=") {
+	if script := installScript("", "", ""); !strings.Contains(script, want) || !strings.Contains(script, "grep -q 'TimeoutStopSec=") {
 		t.Errorf("install script does not add %s to an existing unit:\n%s", want, script)
 	}
 }

@@ -37,7 +37,7 @@
               {{else if .Available}}<span class="has-text-grey">{{.Available}} available</span>{{end}}
             </td>
             <td>{{if .Server}}{{.Server.Type}} {{.Server.Status}} {{.Server.Location}}{{end}}</td>
-            <td>{{if .Server}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a><br><small>{{if .Host}}{{.Host}} → {{end}}{{.Server.IP}}</small>{{if .AppPassword}}<br><small>app password <code>{{.AppPassword}}</code></small>{{end}}{{end}}</td>
+            <td>{{if .Server}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a><br><small>{{if .Host}}{{.Host}} → {{end}}{{.Server.IP}}</small>{{if .AppPassword}}<br><small>app password <code>{{.AppPassword}}</code></small>{{end}}{{if .AdminPassword}}<br><small>admin password <code>{{.AdminPassword}}</code></small>{{end}}{{end}}</td>
             <td>
               {{if and .Job .Job.Running}}
                 <form method="post" action="/env/{{.Name}}/cancel" hx-post="/env/{{.Name}}/cancel"><button class="button is-small is-warning">Cancel</button></form>

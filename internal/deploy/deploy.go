@@ -65,6 +65,16 @@ const appPasswordLabel = "app-password"
 // AppPassword is the environment's app password, or "" before one is set.
 func (s *Server) AppPassword() string { return s.Labels[appPasswordLabel] }
 
+// adminPasswordLabel carries the environment's admin password: the first
+// admin's login to the demo's staff web (GOBANK_ADMIN_PASSWORD, gobank
+// story 1.7.1). Kept on the server like the app password, for the same
+// reasons.
+const adminPasswordLabel = "admin-password"
+
+// AdminPassword is the environment's admin password, or "" before one is
+// set.
+func (s *Server) AdminPassword() string { return s.Labels[adminPasswordLabel] }
+
 // appPasswordAlphabet keeps passwords label-safe and easy to type on a phone.
 const appPasswordAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -298,8 +308,10 @@ type Status struct {
 	Version   string // what the service says it is running; "" when unknown
 	Available string // what the next up would deploy; "" when unknown
 	// AppPassword logs any customer in to the demo's BFF; "" before the
-	// first up since the story that introduced it.
-	AppPassword string
+	// first up since the story that introduced it. AdminPassword logs the
+	// user "admin" in to the staff web, likewise.
+	AppPassword   string
+	AdminPassword string
 }
 
 // Behind: the next up would deploy a different release from the one running.
@@ -420,7 +432,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 		if !o.Create {
 			return nil, fmt.Errorf("%s: %w", name, ErrNeedsCreate)
 		}
-		srv, err = d.create(ctx, o, newAppPassword())
+		srv, err = d.create(ctx, o, newAppPassword(), newAppPassword())
 		if err != nil {
 			return nil, err
 		}
@@ -454,15 +466,24 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if err := host.Put(ctx, rel.Binary, binaryPath+".new"); err != nil {
 		return nil, fmt.Errorf("copy binary: %w", err)
 	}
-	// A server from before app passwords gets one on its first redeploy.
-	appPassword := srv.AppPassword()
+	// A server from before app or admin passwords gets them on its first
+	// redeploy.
+	appPassword, adminPassword := srv.AppPassword(), srv.AdminPassword()
+	missing := map[string]string{}
 	if appPassword == "" {
 		appPassword = newAppPassword()
-		if err := d.Cloud.SetLabels(ctx, name, map[string]string{appPasswordLabel: appPassword}); err != nil {
-			return nil, fmt.Errorf("label %s with its app password: %w", name, err)
+		missing[appPasswordLabel] = appPassword
+	}
+	if adminPassword == "" {
+		adminPassword = newAppPassword()
+		missing[adminPasswordLabel] = adminPassword
+	}
+	if len(missing) > 0 {
+		if err := d.Cloud.SetLabels(ctx, name, missing); err != nil {
+			return nil, fmt.Errorf("label %s with its passwords: %w", name, err)
 		}
 	}
-	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB), appPassword)); err != nil {
+	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB), appPassword, adminPassword)); err != nil {
 		return nil, fmt.Errorf("install: %w", err)
 	}
 
@@ -565,18 +586,21 @@ func AppMemoryLimit(ramGB float64) string {
 }
 
 // installScript installs the binary, writes the deployment's environment
-// (what changes per box or per deploy — sizing, the app password — as
-// opposed to what cloud-init fixes at first boot), makes the unit read it
-// and gives it a stop timeout that outlasts a simulated day (the demo
-// finishes the day in progress on SIGTERM; a SIGKILL would lose it), and
-// restarts.
-func installScript(memoryLimit, appPassword string) string {
+// (what changes per box or per deploy — sizing, the app and admin
+// passwords — as opposed to what cloud-init fixes at first boot), makes
+// the unit read it and gives it a stop timeout that outlasts a simulated
+// day (the demo finishes the day in progress on SIGTERM; a SIGKILL would
+// lose it), and restarts.
+func installScript(memoryLimit, appPassword, adminPassword string) string {
 	env := ""
 	if memoryLimit != "" {
 		env = "GOBANK_MEMORY_LIMIT=" + memoryLimit + "\n"
 	}
 	if appPassword != "" {
 		env += "GOBANK_APP_PASSWORD=" + appPassword + "\n"
+	}
+	if adminPassword != "" {
+		env += "GOBANK_ADMIN_PASSWORD=" + adminPassword + "\n"
 	}
 	return `set -e
 install -m 0755 -o gobank -g gobank /opt/gobank/demo.new /opt/gobank/demo
@@ -593,7 +617,7 @@ systemctl restart gobank-demo
 `
 }
 
-func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) (*Server, error) {
+func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPassword string) (*Server, error) {
 	name := o.Env.ServerName()
 	keys, err := d.Cloud.SSHKeys(ctx)
 	if err != nil {
@@ -638,7 +662,7 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword string) 
 				Firewall: name,
 				SSHKeys:  keys,
 				UserData: cloudInit,
-				Labels:   labels(o, appPassword),
+				Labels:   labels(o, appPassword, adminPassword),
 			})
 			if err == nil {
 				return srv, nil
@@ -676,8 +700,8 @@ func sizeDown(typ string) string {
 	return ""
 }
 
-func labels(o UpOptions, appPassword string) map[string]string {
-	l := map[string]string{"project": "gobank", "environment": o.Env.Name, appPasswordLabel: appPassword}
+func labels(o UpOptions, appPassword, adminPassword string) map[string]string {
+	l := map[string]string{"project": "gobank", "environment": o.Env.Name, appPasswordLabel: appPassword, adminPasswordLabel: adminPassword}
 	if !o.Expires.IsZero() {
 		l[expiresLabel] = o.Expires.UTC().Format(expiresLayout)
 	}
@@ -807,6 +831,6 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	return Status{
 		Server: srv, Host: host, URL: d.publicURL(env, srv, named),
 		Serving: serving, Version: version, Available: d.Build.Available(),
-		AppPassword: srv.AppPassword(),
+		AppPassword: srv.AppPassword(), AdminPassword: srv.AdminPassword(),
 	}, nil
 }

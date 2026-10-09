@@ -75,6 +75,64 @@ func TestRedeployLabelsAServerThatHasNoAppPassword(t *testing.T) {
 	}
 }
 
+// A new environment gets an admin password too (gobank story 1.7.1: the
+// first admin's login to the staff web): on the server's labels, and in
+// the box's deploy env so the demo creates its admin with it.
+func TestUpGeneratesAnAdminPasswordForANewServer(t *testing.T) {
+	h := newHarness()
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true}); err != nil {
+		t.Fatal(err)
+	}
+	labels := h.cloud.created[0].Labels
+	pw := labels[adminPasswordLabel]
+	if !appPasswordShape.MatchString(pw) {
+		t.Fatalf("created server's %s label = %q, want 16 lower-case alnum", adminPasswordLabel, pw)
+	}
+	if pw == labels[appPasswordLabel] {
+		t.Error("the admin password is the app password")
+	}
+	if runs := strings.Join(h.host.runs, "\n"); !strings.Contains(runs, "GOBANK_ADMIN_PASSWORD="+pw) {
+		t.Errorf("install should write the admin password to the deploy env file:\n%s", runs)
+	}
+}
+
+// A server from before admin passwords keeps its app password and gets
+// an admin password on its first redeploy.
+func TestRedeployLabelsAServerThatHasNoAdminPassword(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33", MemoryGB: 8,
+		Labels: map[string]string{appPasswordLabel: "keepthisone12345"}}
+	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small"}); err != nil {
+		t.Fatal(err)
+	}
+	labels := h.cloud.servers["gobank-prod"].Labels
+	if labels[appPasswordLabel] != "keepthisone12345" {
+		t.Errorf("app password changed to %q", labels[appPasswordLabel])
+	}
+	pw := labels[adminPasswordLabel]
+	if !appPasswordShape.MatchString(pw) {
+		t.Fatalf("server should now carry a generated admin password label, got %q", pw)
+	}
+	runs := strings.Join(h.host.runs, "\n")
+	if !strings.Contains(runs, "GOBANK_APP_PASSWORD=keepthisone12345") || !strings.Contains(runs, "GOBANK_ADMIN_PASSWORD="+pw) {
+		t.Errorf("install should write both passwords:\n%s", runs)
+	}
+}
+
+// Status tells a tester how to log the staff web in.
+func TestStatusShowsTheAdminPassword(t *testing.T) {
+	h := newHarness()
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.9", Type: "cx33",
+		Labels: map[string]string{adminPasswordLabel: "staffpassword123"}}
+	st, err := h.d.Status(context.Background(), prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.AdminPassword != "staffpassword123" {
+		t.Errorf("Status.AdminPassword = %q", st.AdminPassword)
+	}
+}
+
 // Status tells a tester how to log the app in.
 func TestStatusShowsTheAppPassword(t *testing.T) {
 	h := newHarness()

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-09
+
 ## [0.14.0] - 2026-10-09
 
  - Admin password per environment for the staff login (gobank 1.7.1)

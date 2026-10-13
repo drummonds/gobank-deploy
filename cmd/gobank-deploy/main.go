@@ -452,5 +452,8 @@ func printStatus(env deploy.Environment, st deploy.Status) {
 	if st.AdminPassword != "" {
 		fmt.Printf("staff:  login admin, password %s\n", st.AdminPassword)
 	}
+	if st.APIToken != "" {
+		fmt.Printf("api:    token %s (drives the console as the operator)\n", st.APIToken)
+	}
 	fmt.Printf("note:   server bills until deleted — tp secrets gobank-deploy down %s\n", env.Name)
 }

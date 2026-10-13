@@ -75,6 +75,15 @@ const adminPasswordLabel = "admin-password"
 // set.
 func (s *Server) AdminPassword() string { return s.Labels[adminPasswordLabel] }
 
+// apiTokenLabel carries the environment's API token: what this program
+// drives the demo's console with (GOBANK_API_TOKEN, gobank story 9.4),
+// sent as a bearer token on every console post. Kept on the server like
+// the passwords, for the same reasons.
+const apiTokenLabel = "api-token"
+
+// APIToken is the environment's API token, or "" before one is set.
+func (s *Server) APIToken() string { return s.Labels[apiTokenLabel] }
+
 // appPasswordAlphabet keeps passwords label-safe and easy to type on a phone.
 const appPasswordAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -312,6 +321,9 @@ type Status struct {
 	// user "admin" in to the staff web, likewise.
 	AppPassword   string
 	AdminPassword string
+	// APIToken is what this program drives the demo's console with (gobank
+	// story 9.4); "" before the first up since the story that introduced it.
+	APIToken string
 }
 
 // Behind: the next up would deploy a different release from the one running.
@@ -432,7 +444,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 		if !o.Create {
 			return nil, fmt.Errorf("%s: %w", name, ErrNeedsCreate)
 		}
-		srv, err = d.create(ctx, o, newAppPassword(), newAppPassword())
+		srv, err = d.create(ctx, o, newAppPassword(), newAppPassword(), newAppPassword())
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +480,7 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	}
 	// A server from before app or admin passwords gets them on its first
 	// redeploy.
-	appPassword, adminPassword := srv.AppPassword(), srv.AdminPassword()
+	appPassword, adminPassword, apiToken := srv.AppPassword(), srv.AdminPassword(), srv.APIToken()
 	missing := map[string]string{}
 	if appPassword == "" {
 		appPassword = newAppPassword()
@@ -478,12 +490,16 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 		adminPassword = newAppPassword()
 		missing[adminPasswordLabel] = adminPassword
 	}
+	if apiToken == "" {
+		apiToken = newAppPassword()
+		missing[apiTokenLabel] = apiToken
+	}
 	if len(missing) > 0 {
 		if err := d.Cloud.SetLabels(ctx, name, missing); err != nil {
 			return nil, fmt.Errorf("label %s with its passwords: %w", name, err)
 		}
 	}
-	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB), appPassword, adminPassword)); err != nil {
+	if err := host.Run(ctx, installScript(AppMemoryLimit(srv.MemoryGB), appPassword, adminPassword, apiToken)); err != nil {
 		return nil, fmt.Errorf("install: %w", err)
 	}
 
@@ -591,7 +607,7 @@ func AppMemoryLimit(ramGB float64) string {
 // the unit read it and gives it a stop timeout that outlasts a simulated
 // day (the demo finishes the day in progress on SIGTERM; a SIGKILL would
 // lose it), and restarts.
-func installScript(memoryLimit, appPassword, adminPassword string) string {
+func installScript(memoryLimit, appPassword, adminPassword, apiToken string) string {
 	env := ""
 	if memoryLimit != "" {
 		env = "GOBANK_MEMORY_LIMIT=" + memoryLimit + "\n"
@@ -601,6 +617,9 @@ func installScript(memoryLimit, appPassword, adminPassword string) string {
 	}
 	if adminPassword != "" {
 		env += "GOBANK_ADMIN_PASSWORD=" + adminPassword + "\n"
+	}
+	if apiToken != "" {
+		env += "GOBANK_API_TOKEN=" + apiToken + "\n"
 	}
 	return `set -e
 install -m 0755 -o gobank -g gobank /opt/gobank/demo.new /opt/gobank/demo
@@ -617,7 +636,7 @@ systemctl restart gobank-demo
 `
 }
 
-func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPassword string) (*Server, error) {
+func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPassword, apiToken string) (*Server, error) {
 	name := o.Env.ServerName()
 	keys, err := d.Cloud.SSHKeys(ctx)
 	if err != nil {
@@ -662,7 +681,7 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPa
 				Firewall: name,
 				SSHKeys:  keys,
 				UserData: cloudInit,
-				Labels:   labels(o, appPassword, adminPassword),
+				Labels:   labels(o, appPassword, adminPassword, apiToken),
 			})
 			if err == nil {
 				return srv, nil
@@ -700,8 +719,8 @@ func sizeDown(typ string) string {
 	return ""
 }
 
-func labels(o UpOptions, appPassword, adminPassword string) map[string]string {
-	l := map[string]string{"project": "gobank", "environment": o.Env.Name, appPasswordLabel: appPassword, adminPasswordLabel: adminPassword}
+func labels(o UpOptions, appPassword, adminPassword, apiToken string) map[string]string {
+	l := map[string]string{"project": "gobank", "environment": o.Env.Name, appPasswordLabel: appPassword, adminPasswordLabel: adminPassword, apiTokenLabel: apiToken}
 	if !o.Expires.IsZero() {
 		l[expiresLabel] = o.Expires.UTC().Format(expiresLayout)
 	}
@@ -831,6 +850,6 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	return Status{
 		Server: srv, Host: host, URL: d.publicURL(env, srv, named),
 		Serving: serving, Version: version, Available: d.Build.Available(),
-		AppPassword: srv.AppPassword(), AdminPassword: srv.AdminPassword(),
+		AppPassword: srv.AppPassword(), AdminPassword: srv.AdminPassword(), APIToken: srv.APIToken(),
 	}, nil
 }

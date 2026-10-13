@@ -44,10 +44,12 @@ func init() { wf.Definitions = append(wf.Definitions, PerfDefinition) }
 // about.json, and the forms an operator would press.
 type PerfConsole interface {
 	Read(ctx context.Context, url string) (drills.Reading, error)
-	SetSettings(ctx context.Context, url string, dayLength time.Duration, maxCustomers int) error
-	AddCustomers(ctx context.Context, url string, n int) error
-	Start(ctx context.Context, url string) error
-	Stop(ctx context.Context, url string) error
+	// The posts are made as the operator, with the environment's API
+	// token (gobank story 9.4).
+	SetSettings(ctx context.Context, url, token string, dayLength time.Duration, maxCustomers int) error
+	AddCustomers(ctx context.Context, url, token string, n int) error
+	Start(ctx context.Context, url, token string) error
+	Stop(ctx context.Context, url, token string) error
 }
 
 // Perf runs the performance workflow.
@@ -293,18 +295,18 @@ func (r *perfRun) add(ctx context.Context) error {
 		return err
 	}
 	if rd.Running {
-		if err := r.p.Console.Stop(ctx, st.URL); err != nil {
+		if err := r.p.Console.Stop(ctx, st.URL, st.APIToken); err != nil {
 			return fmt.Errorf("stopping the run: %w", err)
 		}
 	}
-	if err := r.p.Console.SetSettings(ctx, st.URL, 0, r.p.maxCustomers()); err != nil {
+	if err := r.p.Console.SetSettings(ctx, st.URL, st.APIToken, 0, r.p.maxCustomers()); err != nil {
 		return fmt.Errorf("setting flat out: %w", err)
 	}
 	span := or(r.p.AddSpan, 10*time.Minute)
 	start, from := r.p.now(), rd.Position.Customers
 	var adding time.Duration
 	for r.p.now().Sub(start) < span {
-		if err := r.p.Console.AddCustomers(ctx, st.URL, r.p.batch()); err != nil {
+		if err := r.p.Console.AddCustomers(ctx, st.URL, st.APIToken, r.p.batch()); err != nil {
 			return fmt.Errorf("adding customers: %w", err)
 		}
 		for {
@@ -351,7 +353,7 @@ func (r *perfRun) days(ctx context.Context) error {
 	}
 	from := rd.Position.DayCount
 	if !rd.Running {
-		if err := r.p.Console.Start(ctx, st.URL); err != nil {
+		if err := r.p.Console.Start(ctx, st.URL, st.APIToken); err != nil {
 			return fmt.Errorf("starting the run: %w", err)
 		}
 	}
@@ -365,7 +367,7 @@ func (r *perfRun) days(ctx context.Context) error {
 	if _, rd, err = r.read(ctx); err != nil {
 		return err
 	}
-	if err := r.p.Console.Stop(ctx, st.URL); err != nil {
+	if err := r.p.Console.Stop(ctx, st.URL, st.APIToken); err != nil {
 		return fmt.Errorf("stopping the run: %w", err)
 	}
 	rec.DaysSpan = span

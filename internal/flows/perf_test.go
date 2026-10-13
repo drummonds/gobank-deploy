@@ -117,14 +117,14 @@ func (c *perfConsole) Read(_ context.Context, url string) (drills.Reading, error
 	return rd, nil
 }
 
-func (c *perfConsole) SetSettings(_ context.Context, _ string, dayLength time.Duration, maxCustomers int) error {
+func (c *perfConsole) SetSettings(_ context.Context, _, _ string, dayLength time.Duration, maxCustomers int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.settings = append(c.settings, fmt.Sprintf("%s %d", dayLength, maxCustomers))
 	return nil
 }
 
-func (c *perfConsole) AddCustomers(_ context.Context, url string, n int) error {
+func (c *perfConsole) AddCustomers(_ context.Context, url, _ string, n int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := c.demo(url)
@@ -135,7 +135,7 @@ func (c *perfConsole) AddCustomers(_ context.Context, url string, n int) error {
 	return nil
 }
 
-func (c *perfConsole) Start(_ context.Context, url string) error {
+func (c *perfConsole) Start(_ context.Context, url, _ string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := c.demo(url)
@@ -144,7 +144,7 @@ func (c *perfConsole) Start(_ context.Context, url string) error {
 	return nil
 }
 
-func (c *perfConsole) Stop(_ context.Context, url string) error {
+func (c *perfConsole) Stop(_ context.Context, url, _ string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stop++

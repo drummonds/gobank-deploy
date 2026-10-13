@@ -1097,7 +1097,24 @@ func TestStopTimeoutOutlastsADay(t *testing.T) {
 	if !strings.Contains(cloudInit, want) {
 		t.Errorf("cloud-init unit lacks %s", want)
 	}
-	if script := installScript("", "", ""); !strings.Contains(script, want) || !strings.Contains(script, "grep -q 'TimeoutStopSec=") {
+	if script := installScript("", "", "", ""); !strings.Contains(script, want) || !strings.Contains(script, "grep -q 'TimeoutStopSec=") {
 		t.Errorf("install script does not add %s to an existing unit:\n%s", want, script)
+	}
+}
+
+// The API token (gobank story 9.4) travels with the passwords: generated
+// per environment, labelled on the server and written to the deploy env
+// as GOBANK_API_TOKEN, so the demo's console admits this program.
+func TestAPITokenTravelsWithThePasswords(t *testing.T) {
+	script := installScript("", "app", "admin", "t0k3n")
+	for _, want := range []string{"GOBANK_APP_PASSWORD=app", "GOBANK_ADMIN_PASSWORD=admin", "GOBANK_API_TOKEN=t0k3n"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("install script lacks %s:\n%s", want, script)
+		}
+	}
+	l := labels(UpOptions{Env: Environment{Name: "preprod"}}, "app", "admin", "t0k3n")
+	srv := &Server{Labels: l}
+	if srv.APIToken() != "t0k3n" || srv.AdminPassword() != "admin" || srv.AppPassword() != "app" {
+		t.Errorf("labels %v", l)
 	}
 }

@@ -85,6 +85,13 @@ inside the box first; expand/contract migrations through gobank-db.
       coming from `GOBANK_ADMIN_PASSWORD`. `up` generates one per
       environment as it does the app password, labels the server with it,
       writes it beside the app password, and `status` and the ui show it
+- [x] (unreleased) Story 1o — API token: the demo's console sits behind
+      the staff login (gobank 1.7.1), so the drill's settings post was
+      redirected to the login and read as success, and the v0.35.0 and
+      v0.36.0 drills failed at the upgrade hop. `up` generates a token
+      per environment as it does the passwords (`GOBANK_API_TOKEN`), the
+      console client sends it as a bearer token (gobank story 9.4) and
+      treats a redirect to the login as a refusal
 - [ ] Story 1m — The release as a pipeline, keyed by version: one
       instance per gobank tag spanning tp release (check, bump, changelog,
       tag, push: the laptop, where the working tree and the human are) and

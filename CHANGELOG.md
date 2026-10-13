@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- An API token per environment (gobank story 9.4): `up` generates one as
+  it does the passwords, keeps it on the server's labels, writes it to the
+  deploy env as `GOBANK_API_TOKEN`, and `status` and the ui show it. The
+  console client sends it as a bearer token on every post (the drill's
+  day length, the performance run's settings, batch add, Run and Stop),
+  so the demo admits this program as the operator now that its console
+  sits behind the staff login (gobank 1.7.1).
+
+### Fixed
+- A console post the demo answered by sending us to its login page was
+  read as success: the drill's day length was never set, the run went
+  on flat out between the observation and the stop, and the upgrade hop
+  failed on "the run went on before the stop" (the v0.35.0 and v0.36.0
+  drills on preprod). A redirect to the login is now `ErrLoginWanted`,
+  so a drill on an environment without a token fails at prepare and
+  says why.
+
 ## [0.16.0] - 2026-10-09
 
 ## [0.15.0] - 2026-10-09

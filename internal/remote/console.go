@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,8 +18,12 @@ import (
 
 // Console is the demo's simulation console over HTTP: about.json for what
 // the demo is doing, and the console's own forms for what an operator
-// would press — the settings, the batch add, Run and Stop (gobank's
-// default session is the admin's, so no login is needed).
+// would press — the settings, the batch add, Run and Stop. The forms sit
+// behind the staff login (gobank 1.7.1); this program is admitted as the
+// operator by the environment's API token, sent as a bearer token on
+// every post (gobank story 9.4). A post the demo answers by sending us
+// to its login page is a refusal: the environment has no token the demo
+// knows.
 type Console struct {
 	Timeout time.Duration // per request; defaults to 10s
 }
@@ -116,45 +121,54 @@ func (c *Console) Read(ctx context.Context, base string) (drills.Reading, error)
 
 // SetDayLength posts the settings form with the new day length and the
 // current customer ceiling, as the settings page does.
-func (c *Console) SetDayLength(ctx context.Context, base string, d time.Duration) error {
+func (c *Console) SetDayLength(ctx context.Context, base, token string, d time.Duration) error {
 	a, err := c.fetch(ctx, base)
 	if err != nil {
 		return err
 	}
-	return c.SetSettings(ctx, base, d, a.Settings.MaxCustomers)
+	return c.SetSettings(ctx, base, token, d, a.Settings.MaxCustomers)
 }
 
 // SetSettings posts the settings form: the day length (zero is flat out)
 // and the customer ceiling together, as the page does.
-func (c *Console) SetSettings(ctx context.Context, base string, dayLength time.Duration, maxCustomers int) error {
-	return c.post(ctx, base, "/settings", url.Values{"day_length": {dayLength.String()}, "max_customers": {strconv.Itoa(maxCustomers)}})
+func (c *Console) SetSettings(ctx context.Context, base, token string, dayLength time.Duration, maxCustomers int) error {
+	return c.post(ctx, base, token, "/settings", url.Values{"day_length": {dayLength.String()}, "max_customers": {strconv.Itoa(maxCustomers)}})
 }
 
 // AddCustomers starts a batch add of n customers, as the dashboard's form
 // does; the demo reports it running at about.json until it is done.
-func (c *Console) AddCustomers(ctx context.Context, base string, n int) error {
-	return c.post(ctx, base, "/add-customers", url.Values{"n": {strconv.Itoa(n)}})
+func (c *Console) AddCustomers(ctx context.Context, base, token string, n int) error {
+	return c.post(ctx, base, token, "/add-customers", url.Values{"n": {strconv.Itoa(n)}})
 }
 
 // Start presses Run: the day loop goes.
-func (c *Console) Start(ctx context.Context, base string) error {
-	return c.post(ctx, base, "/start", url.Values{})
+func (c *Console) Start(ctx context.Context, base, token string) error {
+	return c.post(ctx, base, token, "/start", url.Values{})
 }
 
 // Stop presses Stop: the day loop ends, the day in progress left for the
 // next Run to resume.
-func (c *Console) Stop(ctx context.Context, base string) error {
-	return c.post(ctx, base, "/stop", url.Values{})
+func (c *Console) Stop(ctx context.Context, base, token string) error {
+	return c.post(ctx, base, token, "/stop", url.Values{})
 }
 
-// post submits one of the console's forms and accepts the redirect it
-// answers with.
-func (c *Console) post(ctx context.Context, base, path string, form url.Values) error {
+// ErrLoginWanted: the demo sent the post to its login page, so the
+// environment's token is not one the demo knows (none, or from before
+// the server was labelled with one: redeploy).
+var ErrLoginWanted = errors.New("the demo's console wants a login: the environment has no API token the demo knows (redeploy to set one)")
+
+// post submits one of the console's forms, as the operator when a token
+// is given, and accepts the redirect it answers with, unless the redirect
+// is to the login page.
+func (c *Console) post(ctx context.Context, base, token, path string, form url.Values) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(base, "/")+path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	client := c.client()
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
@@ -164,6 +178,9 @@ func (c *Console) post(ctx context.Context, base, path string, form url.Values) 
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%s: %s", strings.TrimPrefix(path, "/"), resp.Status)
+	}
+	if loc := resp.Header.Get("Location"); resp.StatusCode >= 300 && strings.Contains(loc, "login") {
+		return fmt.Errorf("%s: %w", strings.TrimPrefix(path, "/"), ErrLoginWanted)
 	}
 	return nil
 }

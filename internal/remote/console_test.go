@@ -87,7 +87,7 @@ func TestConsoleSetsTheDayLengthThroughTheSettingsForm(t *testing.T) {
 		}
 	}))
 	defer ts.Close()
-	if err := (&Console{}).SetDayLength(context.Background(), ts.URL+"/", 2*time.Hour); err != nil {
+	if err := (&Console{}).SetDayLength(context.Background(), ts.URL+"/", "", 2*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if posted.Get("day_length") != "2h0m0s" || posted.Get("max_customers") != "1000000" {
@@ -126,10 +126,10 @@ func TestConsoleReadsTheRatesAndDrivesTheSimulation(t *testing.T) {
 		t.Errorf("rates = adding %v %.1f/s, %d account days, last day %s over %d", rd.Adding, rd.CustomersPerSec, rd.AccountDaysPer12h, rd.LastDayDuration, rd.LastDayAccounts)
 	}
 	for _, step := range []func() error{
-		func() error { return c.SetSettings(context.Background(), ts.URL, 0, 1_000_000) },
-		func() error { return c.AddCustomers(context.Background(), ts.URL, 1000) },
-		func() error { return c.Start(context.Background(), ts.URL) },
-		func() error { return c.Stop(context.Background(), ts.URL) },
+		func() error { return c.SetSettings(context.Background(), ts.URL, "", 0, 1_000_000) },
+		func() error { return c.AddCustomers(context.Background(), ts.URL, "", 1000) },
+		func() error { return c.Start(context.Background(), ts.URL, "") },
+		func() error { return c.Stop(context.Background(), ts.URL, "") },
 	} {
 		if err := step(); err != nil {
 			t.Fatal(err)
@@ -143,5 +143,36 @@ func TestConsoleReadsTheRatesAndDrivesTheSimulation(t *testing.T) {
 		if posts[i] != want[i] {
 			t.Errorf("post %d = %q, want %q", i, posts[i], want[i])
 		}
+	}
+}
+
+// Every post carries the environment's API token as a bearer token (gobank
+// story 9.4), and a post the demo answers by sending us to its login page
+// is a refusal, not a success: that is how the drills of v0.35.0 and
+// v0.36.0 came to run with the day length never set.
+func TestConsolePostsAsTheOperatorAndRefusesALoginRedirect(t *testing.T) {
+	var auth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.NotFound(w, r)
+			return
+		}
+		auth = r.Header.Get("Authorization")
+		if auth != "Bearer t0k3n" {
+			http.Redirect(w, r, "/login?redirect=start", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}))
+	defer ts.Close()
+	c := &Console{}
+	if err := c.Start(context.Background(), ts.URL, "t0k3n"); err != nil || auth != "Bearer t0k3n" {
+		t.Errorf("start with the token: %v, header %q", err, auth)
+	}
+	if err := c.Start(context.Background(), ts.URL, ""); !errors.Is(err, ErrLoginWanted) {
+		t.Errorf("start with no token: %v, want ErrLoginWanted", err)
+	}
+	if err := c.Start(context.Background(), ts.URL, "wr0ng"); !errors.Is(err, ErrLoginWanted) {
+		t.Errorf("start with a wrong token: %v, want ErrLoginWanted (this stub redirects; the demo answers 401)", err)
 	}
 }

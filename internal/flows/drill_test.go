@@ -129,7 +129,7 @@ func dayOf(n int) string {
 	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, n).Format("2006-01-02")
 }
 
-func (c *console) SetDayLength(_ context.Context, _ string, d time.Duration) error {
+func (c *console) SetDayLength(_ context.Context, _, _ string, d time.Duration) error {
 	c.setDay = append(c.setDay, d)
 	c.dayLength = d
 	c.dayEnd = c.now().Add(d)

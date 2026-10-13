@@ -47,11 +47,12 @@ type DrillOps interface {
 }
 
 // Console is the demo's simulation console as the drill uses it: read at
-// about.json, and the day length set on the settings page.
+// about.json, and the day length set on the settings page as the
+// operator, with the environment's API token (gobank story 9.4).
 type Console interface {
 	// Read is the demo at url now; ErrNoAbout when the release has no about.json.
 	Read(ctx context.Context, url string) (drills.Reading, error)
-	SetDayLength(ctx context.Context, url string, d time.Duration) error
+	SetDayLength(ctx context.Context, url, token string, d time.Duration) error
 }
 
 // ErrNoAbout: the release serving offers no about.json (gobank before
@@ -215,7 +216,7 @@ func (r *drillRun) prepare(ctx context.Context) error {
 	if !rd.About {
 		return nil
 	}
-	if err := r.ensureDayLength(ctx, st.URL, rd); err != nil {
+	if err := r.ensureDayLength(ctx, st, rd); err != nil {
 		return err
 	}
 	budget := or(r.d.Budget, 10*time.Minute)
@@ -240,13 +241,13 @@ func (r *drillRun) prepare(ctx context.Context) error {
 // the minimum. Prepare does it so the upgrade lands mid-day; every hop
 // does it again, since a release before gobank v0.10.3 forgets the
 // setting on restart and the days would race before the next hop.
-func (r *drillRun) ensureDayLength(ctx context.Context, url string, rd drills.Reading) error {
+func (r *drillRun) ensureDayLength(ctx context.Context, st deploy.Status, rd drills.Reading) error {
 	minDay, dayLength := or(r.d.MinDayLength, 30*time.Minute), or(r.d.DayLength, 2*time.Hour)
 	if rd.DayLength >= minDay {
 		return nil
 	}
 	fmt.Fprintf(r.out, "day length %s is under %s: setting %s so the upgrade lands mid-day\n", rd.DayLength, minDay, dayLength)
-	if err := r.d.Console.SetDayLength(ctx, url, dayLength); err != nil {
+	if err := r.d.Console.SetDayLength(ctx, st.URL, st.APIToken, dayLength); err != nil {
 		return fmt.Errorf("setting the day length: %w", err)
 	}
 	return nil
@@ -291,7 +292,7 @@ func (r *drillRun) hop(ctx context.Context, name, version, previous string, mome
 		return err
 	}
 	if rd.About {
-		if err := r.ensureDayLength(ctx, st.URL, rd); err != nil {
+		if err := r.ensureDayLength(ctx, st, rd); err != nil {
 			return err
 		}
 	}

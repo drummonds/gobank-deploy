@@ -24,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   so a drill on an environment without a token fails at prepare and
   says why.
 
+### Roadmap
+- Story 1o — API token per environment; the console client drives the demo as the operator
+
 ## [0.16.0] - 2026-10-09
 
 ## [0.15.0] - 2026-10-09
@@ -39,6 +42,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   password, writes it as `GOBANK_ADMIN_PASSWORD` in the deploy env, and
   `status` and the ui show it, so a tester can log the staff web in as
   `admin`.
+
+### Roadmap
+- Story 1n — Admin password per environment for the staff login
 
 ## [0.13.0] - 2026-10-08
 
@@ -61,6 +67,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Every page shares one navbar, so the About page now has the Performance
   and DB Explorer tabs it lacked.
+
+### Roadmap
+- Story 1l — A Workflows tab: the engine's view of its workflows, instances and steps
 
 ## [0.11.0] - 2026-10-06
 
@@ -120,6 +129,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`customers_per_sec`, `account_days_per_12h`, `adding_customers`,
   `last_day_duration`, `last_day_accounts`) and drives the demo's forms:
   the settings together (`SetSettings`), `AddCustomers`, `Start`, `Stop`.
+
+### Roadmap
+- Story 1k — The performance run as a workflow, with a Performance page
 
 ## [0.9.0] - 2026-10-05
 
@@ -208,6 +220,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `cmd/flowd2` writes one `<type>-workflow.d2` per definition instead of
   printing one to stdout
 
+### Roadmap
+- Story 1j — The upgrade drill as a workflow, with a database and a Drills page
+
 ## [0.5.0] - 2026-10-04
 
  - Story 1i: rollback from the store (fetch a named tag) and a stop timeout that outlasts a day
@@ -232,6 +247,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Without JavaScript the page works as before. htmx 2.0.4 is embedded
   in the binary
 
+### Roadmap
+- Story 1h — `ui` on htmx (lofigui tier 3): the page stops reloading itself
+- Story 1i — Rollback from the store (`POST /fetch?tag=vX`) and a stop that waits for the day
+
 ## [0.4.0] - 2026-10-02
 
  - Gen update
@@ -253,6 +272,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `/etc/gobank/deploy.env`, so the demo's customer BFF (gobank ADR-0002
   stage 1, `/v1/` on the demo's port) accepts logins; `status` and the ui
   show it. `Cloud` gains `SetLabels`.
+
+### Roadmap
+- Story 1g — App password per environment
 
 ## [0.2.0] - 2026-10-01
 
@@ -291,6 +313,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - With a store and a repo, an empty store no longer hides Create and
   Redeploy: the first deploy fills it. The page and `status` say the next
   deploy fetches a lagging release, rather than asking for a push.
+
+### Roadmap
+- Story 1f — The gobank release is the build stage: goreleaser attaches the demo binaries, `up` from a store fetches them
 
 ## [0.1.5] - 2026-09-29
 
@@ -341,6 +366,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   page link by hostname. `-dns DOMAIN` / `-dns ""`; skipped with a notice
   when there are no AWS credentials.
 
+### Roadmap
+- Story 1d — Versions on the page and in `status`
+- Story 1e — First workflow on gobank-workflow: the temporary demo environment
+
 ## [0.1.0] - 2026-09-26
 
  - ui lists the project's gobank servers and adds environments by name; demo back in the default
@@ -383,3 +412,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   method (x/crypto/ssh tries each method name once).
 - `TestDialReal`, gated by `GOBANK_DEPLOY_SSH_IP`, exercises the dialer
   against a live server.
+
+### Roadmap
+- Story 1 — `up`, `down`, `status` for a named environment
+- Story 1a — `ui`: environment states and controls on a polling page
+- Story 1b — `ui` as a status-and-down console on hydrogen (gokrazy)
+- Story 1c — `up` from a release store; `task push` fills hydrogen's, an older push is a rollback
+- Story 6 — Run on gokrazy: pure Go, a key on the appliance instead of an ssh agent
+

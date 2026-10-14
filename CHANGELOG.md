@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-14
+
 ### Changed
 - The scenario probe posts the customer search's name in the form, as
   gobank's search (gobank #154) takes it, never in a URL; the default

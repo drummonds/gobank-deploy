@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- The performance run (#24) runs to targets instead of ten minutes a
+  stage: `add` until the books hold 10,000 customers, `days` until the
+  bank's day is seven years on, each stage bounded by a six-hour ceiling,
+  so a run is a soak of up to six hours a scale, all scales at once. The
+  record's add and days spans are now the time each stage took; the log
+  says when a stage stopped at the ceiling short of its target.
+
+### Fixed
+- `perf` run at every scale at once found no records when the runs
+  crossed midnight: the keys are fixed when the runs start.
+
 ## [0.18.0] - 2026-10-14
 
 ### Changed

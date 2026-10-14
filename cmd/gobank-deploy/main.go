@@ -83,8 +83,9 @@ func usage() {
   gobank-deploy perf <env> [-scales small,large] [-db FILE] [-doc PATH]
                                                        performance run at every scale at once, one server
                                                        each (<env>-<scale>): create, add customers flat out
-                                                       for 10m, run days for 10m, read both rates off the
-                                                       demo, remove; the figures are kept in FILE and the
+                                                       to 10,000, run days for seven years or six hours,
+                                                       read both rates off the demo, remove; the figures
+                                                       are kept in FILE and the
                                                        rows written into gobank's performance doc PATH
                                                        (default <-src>/benchmark.md) for you to commit
   gobank-deploy scenario <name> [-scale large] [-customers 1000] [-years 7] [-day-length 24h]

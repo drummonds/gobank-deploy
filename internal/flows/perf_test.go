@@ -185,7 +185,7 @@ func newPerfHarness(t *testing.T) *perfHarness {
 			h.clock.Unlock()
 			return ctx.Err()
 		},
-		Poll: 10 * time.Second, AddSpan: 10 * time.Minute, DaysSpan: 10 * time.Minute, Batch: 1000,
+		Poll: 10 * time.Second, Customers: 10_000, Years: 7, Ceiling: 6 * time.Hour, Batch: 1000,
 	}
 	return h
 }
@@ -195,9 +195,10 @@ func (h *perfHarness) run(scale string) error {
 }
 
 // A performance run creates the environment at the scale asked for, sets
-// the demo flat out with room for every customer, adds customers for the
-// add span and lets days run for the days span, records both rates with
-// what they were made of, and removes the server.
+// the demo flat out with room for every customer, adds customers until
+// the books hold the target, runs days until the bank is the years on or
+// the ceiling is reached, records both rates with what they were made of
+// and how long each took, and removes the server.
 func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	h := newPerfHarness(t)
 	if err := h.run("large"); err != nil {
@@ -209,13 +210,13 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	if strings.Join(h.con.settings, ",") != "0s 1000000" {
 		t.Errorf("settings set %v; want flat out with a million customers' room", h.con.settings)
 	}
-	// Ten minutes of one-minute batches: ten batches, measured at the
-	// demo's own rate for each.
+	// Ten one-minute batches reach the 10,000 customers, each measured
+	// at the demo's own rate.
 	if len(h.con.addCalls) != 10 || h.con.demo("http://perf/").customers != 10_000 {
 		t.Errorf("add calls %v, customers %d; want ten batches of 1000", h.con.addCalls, h.con.demo("http://perf/").customers)
 	}
 	if h.con.starts != 1 || h.con.stop != 1 {
-		t.Errorf("starts %d stops %d; want the run started for the days span and stopped after", h.con.starts, h.con.stop)
+		t.Errorf("starts %d stops %d; want the run started for the days and stopped after", h.con.starts, h.con.stop)
 	}
 
 	runs, _ := h.runs.ListRuns(context.Background(), 1)
@@ -242,13 +243,17 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 		t.Errorf("where it ran = %+v", rec)
 	}
 	if rec.AddSpan != 10*time.Minute || rec.Customers != 10_000 || rec.CustomersPerSec < 16 || rec.CustomersPerSec > 17 {
-		t.Errorf("add figures = span %s, %d customers at %.1f/s; want 10m, 10000 at 16.7/s (1000 a minute)", rec.AddSpan, rec.Customers, rec.CustomersPerSec)
+		t.Errorf("add figures = took %s, %d customers at %.1f/s; want 10m, 10000 at 16.7/s (1000 a minute)", rec.AddSpan, rec.Customers, rec.CustomersPerSec)
 	}
-	if rec.DaysSpan != 10*time.Minute || rec.Days < 6 || rec.Days > 7 || rec.AccountDaysPer12h != 9_000_000 || rec.LastDay != 85*time.Second || rec.LastDayAccounts != 20_000 {
-		t.Errorf("days figures = %+v; want 10m, 6 or 7 days at 9,000,000 account days per 12h, last day 85s over 20000 accounts", rec)
+	// Seven years at a day per 90s would take 64 hours: the six-hour
+	// ceiling stops the days at 240, and the record says how long it ran.
+	if rec.DaysSpan != 6*time.Hour || rec.Days != 240 || rec.AccountDaysPer12h != 9_000_000 || rec.LastDay != 85*time.Second || rec.LastDayAccounts != 20_000 {
+		t.Errorf("days figures = %+v; want 6h, 240 days at 9,000,000 account days per 12h, last day 85s over 20000 accounts", rec)
 	}
-	if !strings.Contains(h.out.String(), "customers/s") || !strings.Contains(h.out.String(), "account days") {
-		t.Errorf("log should state both rates:\n%s", h.out.String())
+	for _, want := range []string{"customers/s", "account days", "ceiling"} {
+		if !strings.Contains(h.out.String(), want) {
+			t.Errorf("log should say %q:\n%s", want, h.out.String())
+		}
 	}
 }
 
@@ -308,5 +313,68 @@ func TestPerfRunAllMeasuresEveryScaleAtOnce(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("log missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// The add stage runs the books up to the target, the last batch cut to
+// size; a demo that already holds customers (a resumed run) is topped up
+// to the same target, not given the target again.
+func TestPerfAddsUpToTheCustomerTarget(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers = 2500
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(h.con.addCalls) != "[1000 1000 500]" {
+		t.Errorf("add calls %v; want 1000, 1000 and 500", h.con.addCalls)
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Customers != 2500 || list[0].AddSpan != 3*time.Minute {
+		t.Errorf("record = %+v; want 2500 customers in 3m", list)
+	}
+
+	h = newPerfHarness(t)
+	h.flow.Customers = 2500
+	h.con.demo("http://perf/").customers = 2200
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(h.con.addCalls) != "[300]" {
+		t.Errorf("add calls %v on a demo holding 2200; want one of 300", h.con.addCalls)
+	}
+}
+
+// The days stage stops when the bank's day is the years on from where it
+// started, give or take a poll, when that comes before the ceiling.
+func TestPerfRunsDaysUpToTheYears(t *testing.T) {
+	h := newPerfHarness(t)
+	h.con.dayTime = 10 * time.Second
+	h.flow.Years = 1
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Days < 365 || list[0].Days > 366 || list[0].DaysSpan >= time.Hour+2*time.Minute {
+		t.Errorf("record = %+v; want a year of days (365 or 366) in about an hour", list)
+	}
+	if !strings.Contains(h.out.String(), "to 2027-01-01") || strings.Contains(h.out.String(), "ceiling") {
+		t.Errorf("log should say the days reached 2027-01-01, not the ceiling:\n%s", h.out.String())
+	}
+}
+
+// The ceiling bounds the add stage too: a demo too slow to reach the
+// target stops being fed when the ceiling is reached.
+func TestPerfCeilingBoundsTheAdd(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Ceiling = 2 * time.Minute
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.con.addCalls) != 2 {
+		t.Errorf("add calls %v; want two one-minute batches before the two-minute ceiling", h.con.addCalls)
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Customers != 2000 || list[0].AddSpan != 2*time.Minute {
+		t.Errorf("record = %+v; want 2000 customers in 2m", list)
 	}
 }

@@ -15,9 +15,9 @@ var sample = Run{
 	Config:    Config{Name: "seven-years", Customers: 1000, Years: 7, DayLength: 24 * time.Hour, Search: "Smith", Ladder: []int{1, 4, 16}, Samples: 20},
 	Steps: []Step{
 		{Name: "add", Started: time.Date(2026, 10, 15, 9, 1, 0, 0, time.UTC), Duration: 2 * time.Minute,
-			Figures: []Figure{{"customers", "1,000"}, {"customers/s", "8.3"}}},
+			Figures: []Figure{{"added", "1,000"}, {"on the books", "1,000"}, {"customers/s", "8.3"}}},
 		{Name: "years", Started: time.Date(2026, 10, 15, 9, 3, 0, 0, time.UTC), Duration: 3*time.Hour + 12*time.Minute,
-			Figures: []Figure{{"days", "2,556"}, {"account days / 12h", "13,367,814"}}},
+			Figures: []Figure{{"bank days", "2,556"}, {"from", "2026-01-01"}, {"to", "2033-01-01"}, {"bank days/h", "799"}, {"account days/h", "1,597,500"}}},
 	},
 	Probes: []Probe{
 		{Route: "customer search by name", Method: "POST", Path: "/customers/search", Concurrency: 1, N: 20, P50: 120 * time.Millisecond, P95: 310 * time.Millisecond, PerSecond: 8.3},
@@ -42,7 +42,7 @@ func TestFilenameIsDateScenarioScale(t *testing.T) {
 }
 
 // The page states where the run was, its configuration, each step with
-// its duration and figures, each probe's percentiles and throughput at
+// its wall clock and figures, each probe's percentiles and throughput at
 // each rung of the ladder, the routes not scanned and why, links the
 // workflow run, and ends with an empty Notes section for the operator's
 // hand.
@@ -57,8 +57,9 @@ func TestPageHasTheRunItsTablesAndRoomForNotes(t *testing.T) {
 		"| Search | Smith |",
 		"| Ladder | 1, 4, 16 |",
 		"| Samples | 20 |",
-		"| add | 09:01:00 | 2m | customers 1,000; customers/s 8.3 |",
-		"| years | 09:03:00 | 3h12m | days 2,556; account days / 12h 13,367,814 |",
+		"| Step | Started | Wall clock | Figures |",
+		"| add | 09:01:00 | 2m | added 1,000; on the books 1,000; customers/s 8.3 |",
+		"| years | 09:03:00 | 3h12m | bank days 2,556; from 2026-01-01; to 2033-01-01; bank days/h 799; account days/h 1,597,500 |",
 		"| Route | Method | Path | Concurrency | n | p50 | p95 | per s |",
 		"| customer search by name | POST | `/customers/search` | 1 | 20 | 120ms | 310ms | 8.3 |",
 		"| customer search by name | POST | `/customers/search` | 4 | 20 | 150ms | 420ms | 26.7 |",

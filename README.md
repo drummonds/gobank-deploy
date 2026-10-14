@@ -158,10 +158,10 @@ hour, so it is started on purpose, never by a schedule.
 configuration driven through timed steps on a fresh environment named
 `<scenario>-<scale>` — as a workflow: `create` (up -create at the scale; a
 server that exists is kept), `add` (the demo set flat out with room for
-the customers asked for, `-customers 1000`, added in batches at the rate
-the demo reports), `years` (Run flat out until the bank's day is
-`-years 7` on from where it started, give or take a poll: days run,
-account days per 12h and the last day), `wallclock` (the day length set to
+the customers asked for, `-customers 1000`, added in batches: added, on
+the books, customers/s), `years` (Run flat out until the bank's day is
+`-years 7` on from where it started, give or take a poll: bank days run
+from and to, bank days/h, account days/h, the last day), `wallclock` (the day length set to
 `-day-length 24h` and the bank waited for until it follows the clock),
 `probe` (the dashboard, the customer search by name `-search Jones` — the
 name posted in the form, never in a URL, as gobank's search takes it — and
@@ -179,6 +179,22 @@ with no checkout. The first scenario, `seven-years`, is the instrument for
 gobank's milestone 1 (gobank #151): the capacity of one synchronous system
 over seven years. At 1,000 customers a run is an afternoon of billable
 server, so it is started on purpose, never by a schedule.
+
+Two clocks run through a page, and every figure says which it is on, so
+the figures multiply out: customers added is customers/s times the wall
+clock, account days/h is bank days/h times accounts.
+
+| Term | Clock | Meaning |
+|---|---|---|
+| wall clock | wall | how long a step took on the host's clock |
+| bank day | bank | one business date the bank processes |
+| day length | wall | the setting: how long the bank spends on one bank day |
+| bank days, from, to | bank | the days run in the step and its first and last date |
+| last day | wall | how long the last bank day took |
+| customers/s, bank days/h, account days/h | bank per wall | what the step did, over its own wall clock, polling and all |
+
+The perf run's rates are a different instrument: the demo's own figures
+(`/about.json` `sim`), with this program's polling kept out of them.
 
 ### The full performance scan: the scan workflow
 

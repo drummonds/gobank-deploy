@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	neturl "net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -214,10 +215,10 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("steps recorded = %v", names)
 	}
 	add, years, wall := rec.Steps[0], rec.Steps[1], rec.Steps[2]
-	if add.Duration != time.Minute || figure(add, "customers") != "1,000" || figure(add, "customers/s") != "16.7" {
-		t.Errorf("add = %+v; want a minute, 1,000 customers at 16.7/s", add)
+	if add.Duration != time.Minute || figure(add, "added") != "1,000" || figure(add, "on the books") != "1,000" || figure(add, "customers/s") != "16.7" {
+		t.Errorf("add = %+v; want a minute, 1,000 added at 16.7/s", add)
 	}
-	if years.Duration < 2555*10*time.Second || years.Duration > 2558*10*time.Second || figure(years, "days") == "" || figure(years, "account days / 12h") != "9,000,000" || figure(years, "last day") != "1m25s" || figure(years, "accounts") != "2,000" {
+	if years.Duration < 2555*10*time.Second || years.Duration > 2558*10*time.Second || figure(years, "bank days") == "" || figure(years, "from") != "2026-01-01" || figure(years, "to") != "2033-01-01" || figure(years, "bank days/h") != "360" || figure(years, "account days/h") != "720,000" || figure(years, "last day") != "1m25s" || figure(years, "accounts") != "2,000" {
 		t.Errorf("years = %+v", years)
 	}
 	if figure(wall, "last day") != "1m25s" {
@@ -286,5 +287,45 @@ func TestScenarioFailsWhenTheDemoDoesNotAnswer(t *testing.T) {
 	h.ops.version = ""
 	if _, err := h.run(sevenYears, false); err == nil || !strings.Contains(err.Error(), "not serving") {
 		t.Fatalf("err = %v, want not serving", err)
+	}
+}
+
+// A step's figures add up on the page. The add step counts what it added,
+// not what the books hold, and its rate is that count over the step's own
+// wall clock, polling and all, so added equals customers/s times the
+// duration; the demo's in-batch rate, which the polling is not in, is not
+// the figure. The years step names its two clocks: bank days run, from and
+// to on the bank's calendar, and the rates per wall-clock hour of the step.
+func TestScenarioFiguresAddUp(t *testing.T) {
+	h := newScenarioHarness(t)
+	h.flow.Poll = 25 * time.Second // three polls see out a minute's batch: 75s of wall clock
+	h.con.demo("http://seven-years/").customers = 600
+	rec, err := h.run(scenario.Config{Name: "seven-years", Customers: 1000, Years: 1, DayLength: 24 * time.Hour, Search: "Smith"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add, years := rec.Steps[0], rec.Steps[1]
+	if add.Duration != 75*time.Second || figure(add, "added") != "1,000" || figure(add, "on the books") != "1,600" || figure(add, "customers/s") != "13.3" {
+		t.Errorf("add = %+v; want 1,000 added to 1,600 on the books in 75s at 13.3/s", add)
+	}
+	if figure(add, "customers") != "" {
+		t.Errorf("the books' total is not labelled as if the step added it: %+v", add)
+	}
+	days, _ := strconv.Atoi(strings.ReplaceAll(figure(years, "bank days"), ",", ""))
+	if days < 365 || days > 368 || figure(years, "from") != dayOf(0) || figure(years, "to") != dayOf(days) {
+		t.Errorf("years = %+v; want a year of bank days from %s", years, dayOf(0))
+	}
+	hours := years.Duration.Hours()
+	if want := fmt.Sprintf("%.0f", float64(days)/hours); figure(years, "bank days/h") != want {
+		t.Errorf("bank days/h = %q; want %s, the days over the step's %s", figure(years, "bank days/h"), want, years.Duration)
+	}
+	if want := scenario.Comma(int64(float64(days)*3200/hours + 0.5)); figure(years, "account days/h") != want {
+		t.Errorf("account days/h = %q; want %s, the days times the 3,200 accounts over the step's hours", figure(years, "account days/h"), want)
+	}
+	if figure(years, "account days / 12h") != "" || figure(years, "days") != "" {
+		t.Errorf("the demo's pass-window figure and the unlabelled days are gone: %+v", years)
+	}
+	if figure(years, "last day") != "1m25s" || figure(years, "accounts") != "3,200" {
+		t.Errorf("years keeps the last day's wall clock and the accounts: %+v", years)
 	}
 }

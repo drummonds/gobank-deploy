@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- The journal's figures add up (#18): the add step records what it added,
+  the books' total, and customers/s over its own wall clock, where it
+  showed the books' total under "customers" beside the demo's in-batch
+  rate, so 3,000 customers could sit beside a rate and a duration that
+  made 2,400. The years step names its two clocks: bank days from and to,
+  bank days/h and account days/h over the step's wall clock, in place of
+  the demo's "account days / 12h". The steps table's column is "Wall
+  clock" and the README has the vocabulary.
+
 ### Added
 - The concurrency ladder (#21): the scenario's probe loads each route at
   1, 4 and 16 in flight (`-ladder`) and records the throughput it

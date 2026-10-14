@@ -31,8 +31,8 @@ var ScenarioDefinition = wf.Definition{
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create at the scale (skipped when the server exists); record where the run is and what was asked", Source: scenarioSrc},
-		{Name: "add", Description: "flat out with room for the customers asked for; add them in batches at the rate the demo reports", Source: scenarioSrc},
-		{Name: "years", Description: "Run flat out until the bank's day is the years on from where it started; days run, account days per 12h and the last day", Source: scenarioSrc},
+		{Name: "add", Description: "flat out with room for the customers asked for; add them in batches: added, on the books, customers/s over the step's wall clock", Source: scenarioSrc},
+		{Name: "years", Description: "Run flat out until the bank's day is the years on from where it started: bank days run from and to, bank days and account days per wall-clock hour, the last day", Source: scenarioSrc},
 		{Name: "wallclock", Description: "set the day length to the wall-clock value and wait for the bank to follow the clock; the last day's pass", Source: scenarioSrc},
 		{Name: "probe", Description: "the dashboard, the customer search by name and a customer's page, from outside at concurrency 1 and 4: p50 and p95 each; then Stop", Source: scenarioSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname (skipped with --keep)", Source: scenarioSrc},
@@ -294,7 +294,6 @@ func (r *scenarioRun) add(ctx context.Context) error {
 		return fmt.Errorf("setting flat out: %w", err)
 	}
 	started, from := r.s.now(), rd.Position.Customers
-	var adding time.Duration
 	for rd.Position.Customers < from+r.cfg.Customers {
 		n := min(r.s.batch(), from+r.cfg.Customers-rd.Position.Customers)
 		if err := r.s.Console.AddCustomers(ctx, st.URL, st.APIToken, n); err != nil {
@@ -311,20 +310,19 @@ func (r *scenarioRun) add(ctx context.Context) error {
 				break
 			}
 		}
-		if rd.CustomersPerSec > 0 {
-			adding += time.Duration(float64(n) / rd.CustomersPerSec * float64(time.Second))
-		}
 	}
-	added := rd.Position.Customers - from
+	// The rate is the step's own: what it added over its wall clock,
+	// polling and all, so the page's figures multiply out. The demo's
+	// in-batch rate is the perf run's figure, not this one.
+	added, took := rd.Position.Customers-from, r.s.now().Sub(started)
 	rate := 0.0
-	if adding > 0 {
-		rate = float64(added) / adding.Seconds()
-	} else if elapsed := r.s.now().Sub(started); elapsed > 0 {
-		rate = float64(added) / elapsed.Seconds()
+	if took > 0 {
+		rate = float64(added) / took.Seconds()
 	}
-	fmt.Fprintf(r.out, "%d customers added: %.1f customers/s; %d on the books\n", added, rate, rd.Position.Customers)
-	return r.step(ctx, rec, scenario.Step{Name: "add", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "customers", Value: scenario.Comma(int64(rd.Position.Customers))},
+	fmt.Fprintf(r.out, "%d customers added in %s: %.1f customers/s; %d on the books\n", added, scenario.Dur(took), rate, rd.Position.Customers)
+	return r.step(ctx, rec, scenario.Step{Name: "add", Started: started, Duration: took, Figures: []scenario.Figure{
+		{Label: "added", Value: scenario.Comma(int64(added))},
+		{Label: "on the books", Value: scenario.Comma(int64(rd.Position.Customers))},
 		{Label: "customers/s", Value: fmt.Sprintf("%.1f", rate)},
 	}})
 }
@@ -349,7 +347,7 @@ func (r *scenarioRun) years(ctx context.Context) error {
 		return fmt.Errorf("the demo's day %q: %w", rd.Position.Day, err)
 	}
 	target := day.AddDate(r.cfg.Years, 0, 0).Format("2006-01-02")
-	from := rd.Position.DayCount
+	from, fromDay := rd.Position.DayCount, rd.Position.Day
 	if !rd.Running {
 		if err := r.s.Console.Start(ctx, st.URL, st.APIToken); err != nil {
 			return fmt.Errorf("starting the run: %w", err)
@@ -364,13 +362,23 @@ func (r *scenarioRun) years(ctx context.Context) error {
 			return err
 		}
 	}
-	days := rd.Position.DayCount - from
-	fmt.Fprintf(r.out, "%d days run to %s in %s: %s account days per 12h, last day %s over %d accounts\n",
-		days, rd.Position.Day, scenario.Dur(r.s.now().Sub(started)), scenario.Comma(rd.AccountDaysPer12h), scenario.Dur(rd.LastDayDuration), rd.LastDayAccounts)
-	return r.step(ctx, rec, scenario.Step{Name: "years", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "days", Value: scenario.Comma(int64(days))},
+	// Two clocks: bank days run, from and to on the bank's calendar; the
+	// rates per hour of the step's wall clock, so days times accounts over
+	// the duration is the account days figure.
+	days, took := rd.Position.DayCount-from, r.s.now().Sub(started)
+	daysPerHour, accountDaysPerHour := 0.0, 0.0
+	if hours := took.Hours(); hours > 0 {
+		daysPerHour = float64(days) / hours
+		accountDaysPerHour = float64(days) * float64(rd.LastDayAccounts) / hours
+	}
+	fmt.Fprintf(r.out, "%d bank days run from %s to %s in %s: %.0f bank days/h, %s account days/h; last day %s over %d accounts\n",
+		days, fromDay, rd.Position.Day, scenario.Dur(took), daysPerHour, scenario.Comma(int64(accountDaysPerHour+0.5)), scenario.Dur(rd.LastDayDuration), rd.LastDayAccounts)
+	return r.step(ctx, rec, scenario.Step{Name: "years", Started: started, Duration: took, Figures: []scenario.Figure{
+		{Label: "bank days", Value: scenario.Comma(int64(days))},
+		{Label: "from", Value: fromDay},
 		{Label: "to", Value: rd.Position.Day},
-		{Label: "account days / 12h", Value: scenario.Comma(rd.AccountDaysPer12h)},
+		{Label: "bank days/h", Value: fmt.Sprintf("%.0f", daysPerHour)},
+		{Label: "account days/h", Value: scenario.Comma(int64(accountDaysPerHour + 0.5))},
 		{Label: "last day", Value: scenario.Dur(rd.LastDayDuration)},
 		{Label: "accounts", Value: scenario.Comma(int64(rd.LastDayAccounts))},
 	}})

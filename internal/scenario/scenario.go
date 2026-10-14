@@ -16,8 +16,8 @@ import (
 type Config struct {
 	Name      string        // the scenario, e.g. seven-years, or scan
 	Customers int           // added flat out before the years run; for a scan, on the books
-	Years     int           // simulated years run flat out
-	DayLength time.Duration // the day length set after the years: wall clock
+	Years     int           // bank years run flat out
+	DayLength time.Duration // wall clock per bank day, set after the years
 	Search    string        // the name the customer search is probed with
 	Ladder    []int         // the concurrencies each route is probed at
 	Samples   int           // calls per route per rung
@@ -29,7 +29,11 @@ type Figure struct {
 	Value string
 }
 
-// Step is one timed step of a run with what it measured.
+// Step is one timed step of a run with what it measured. Duration is
+// the step's wall clock; a figure says which clock it is on, the bank's
+// calendar (bank days, from, to) or the wall (last day), and a rate is a
+// bank quantity per wall-clock unit over this duration, so the figures
+// on a page multiply out.
 type Step struct {
 	Name     string
 	Started  time.Time
@@ -110,7 +114,7 @@ func Page(r Run) string {
 	fmt.Fprintf(&b, "| Ladder | %s |\n", ladder(r.Config.Ladder))
 	fmt.Fprintf(&b, "| Samples | %d |\n\n", r.Config.Samples)
 
-	b.WriteString("| Step | Started | Duration | Figures |\n|---|---|---|---|\n")
+	b.WriteString("| Step | Started | Wall clock | Figures |\n|---|---|---|---|\n")
 	for _, s := range r.Steps {
 		var figs []string
 		for _, f := range s.Figures {

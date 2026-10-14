@@ -11,6 +11,8 @@ act; deleting it is what stops billing.
 - [README](README.html) — usage, flags, the release store, Route 53
 - [Changelog](CHANGELOG.html)
 - [Roadmap](ROADMAP.html)
+- [Journal](journal/index.html) — the notebook of scenario runs: each
+  run's steps, figures and probes, with the operator's notes under them
 - Source: <https://git.bytestone.uk/hum3/gobank-deploy> · mirror
   <https://github.com/drummonds/gobank-deploy>
 

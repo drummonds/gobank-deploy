@@ -52,6 +52,18 @@
         run with its line for gobank's <code>benchmark.md</code>.</p>
       <figure><img src="/assets/perf-workflow.svg" alt="Perf workflow: create, add, days, remove"></figure>
 
+      <h2 class="title is-5">The scenario workflow</h2>
+      <p><code>gobank-deploy scenario seven-years</code> runs a scenario — a named configuration driven through timed
+        steps on a fresh environment — as a pipeline instance keyed by environment, scale and date: <code>create</code>,
+        <code>add</code> (the customers, flat out), <code>years</code> (flat out until the bank's day is the years on),
+        <code>wallclock</code> (the day length set to real time and the bank following the clock), <code>probe</code>
+        (the dashboard, the customer search by name and a customer's page, from outside at concurrency 1 and 4),
+        <code>remove</code>. Each step is recorded with its figures and the run becomes a page of the
+        <a href="/about/journal">Journal</a>, the notebook kept in the repository's <code>journal/</code> folder for
+        the operator to annotate. It is the instrument for gobank's milestone 1: the capacity of one synchronous
+        system over seven years.</p>
+      <figure><img src="/assets/scenario-workflow.svg" alt="Scenario workflow: create, add, years, wallclock, probe, remove"></figure>
+
       <h2 class="title is-5">Links</h2>
       <ul>
         <li><a href="https://gobank-deploy.docs.bytestone.uk/">Documentation</a> — the same diagrams with the tables behind them</li>

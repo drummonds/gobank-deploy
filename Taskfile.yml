@@ -86,6 +86,7 @@ tasks:
       - task-plus md2html --file README.md --dst docs
       - task-plus md2html --file CHANGELOG.md --dst docs
       - task-plus md2html --file ROADMAP.md --dst docs
+      - task-plus md2html --src journal --dst docs/journal --label "Journal"
 
   docs:d2:
     desc: Render every root d2 file to SVG in docs/ and into the ui's embedded assets; a diagram wider than MAX_WIDTH px shrinks its text below reading size on the page, so split it (one view, one question) or turn it

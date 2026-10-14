@@ -27,6 +27,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/scenario"
 )
 
 //go:embed templates
@@ -70,14 +71,24 @@ type Operator interface {
 	Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
 	// Perfs lists recent performance runs, most recent first.
 	Perfs(ctx context.Context, limit int) ([]perf.Run, error)
+	// Scenarios lists recent scenario runs, most recent first: the journal.
+	Scenarios(ctx context.Context, limit int) ([]scenario.Run, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
 type Ops struct {
 	DeployerFactory
-	Flows  *flows.Demo
-	Drill_ *flows.Drill
-	Perf_  *flows.Perf
+	Flows     *flows.Demo
+	Drill_    *flows.Drill
+	Perf_     *flows.Perf
+	Scenario_ *flows.Scenario // nil where no scenario can be run; the journal is then empty
+}
+
+func (o Ops) Scenarios(ctx context.Context, limit int) ([]scenario.Run, error) {
+	if o.Scenario_ == nil || o.Scenario_.Scenarios == nil {
+		return nil, nil
+	}
+	return o.Scenario_.Scenarios.List(ctx, limit)
 }
 
 func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -412,7 +423,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -420,6 +431,7 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /fragment", s.fragment)
 	s.mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { s.render(w, "about", map[string]any{}) })
+	s.mux.HandleFunc("GET /about/journal", s.journal)
 	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(must(fs.Sub(assetFS, "assets")))))
 	s.mux.HandleFunc("POST /env", s.create)
 	s.mux.HandleFunc("POST /env/{env}/create", s.action("create"))
@@ -918,6 +930,31 @@ func (s *Server) perfs(w http.ResponseWriter, r *http.Request) {
 		views = append(views, v)
 	}
 	s.render(w, "perf", map[string]any{"perfs": views, "error": err})
+}
+
+// journalView is a scenario run as the Journal page shows it: its page
+// and index line as `gobank-deploy scenario` writes them into the
+// journal folder, with the workflow run's state and steps.
+type journalView struct {
+	Title, Filename, Page, IndexLine, RunID string
+	Run                                     *runView // the workflow run; nil when the store has lost it
+	Steps                                   []stepView
+}
+
+// journal is the notebook as this host holds it: every scenario run,
+// newest first, each with the page to copy into the journal folder.
+func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
+	list, err := s.op.Scenarios(r.Context(), 50)
+	var views []journalView
+	for _, run := range list {
+		v := journalView{Title: scenario.Title(run), Filename: scenario.Filename(run), Page: scenario.Page(run), IndexLine: scenario.IndexLine(run), RunID: run.RunID}
+		if rec, steps, err := s.op.Run(r.Context(), run.RunID); err == nil && rec != nil {
+			rv := viewRun(*rec)
+			v.Run, v.Steps = &rv, viewSteps(steps)
+		}
+		views = append(views, v)
+	}
+	s.render(w, "journal", map[string]any{"runs": views, "error": err})
 }
 
 func viewSteps(steps []wf.StepResult) []stepView {

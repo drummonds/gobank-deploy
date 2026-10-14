@@ -60,6 +60,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/scenario"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/store"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/ui"
 )
@@ -86,6 +87,16 @@ func usage() {
                                                        demo, remove; the figures are kept in FILE and the
                                                        rows written into gobank's performance doc PATH
                                                        (default <-src>/benchmark.md) for you to commit
+  gobank-deploy scenario <name> [-scale large] [-customers 1000] [-years 7] [-day-length 24h]
+                        [-search Smith] [-keep] [-db FILE] [-journal DIR]
+                                                       run the named scenario (seven-years) on a fresh
+                                                       environment <name>-<scale>: create, add the customers
+                                                       flat out, run the years flat out, set the day length
+                                                       to wall clock, probe the staff pages from outside,
+                                                       remove (unless -keep); the run is kept in FILE and
+                                                       written as a page of the journal folder DIR (default
+                                                       journal) with its line in DIR/index.md, for you to
+                                                       annotate and commit
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -186,7 +197,7 @@ func main() {
 			}
 		}
 		factory := ui.DeployerFactory(newDeployer)
-		database, runs, drillStore, perfStore, err := openDatabase(ctx, *dbFile)
+		database, runs, drillStore, perfStore, scenarioStore, err := openDatabase(ctx, *dbFile)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -194,7 +205,8 @@ func main() {
 		demo := &flows.Demo{Ops: factory, Store: runs}
 		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: drillStore}
 		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Store: runs, Perfs: perfStore}
-		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow}, envs)
+		scenarioFlow := &flows.Scenario{Ops: factory, Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore}
+		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow, Scenario_: scenarioFlow}, envs)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -257,7 +269,7 @@ func main() {
 		var database *sql.DB
 		var runs *sqlstore.Store
 		var perfStore *perf.Store
-		database, runs, _, perfStore, err = openDatabase(ctx, *dbFile)
+		database, runs, _, perfStore, _, err = openDatabase(ctx, *dbFile)
 		if err != nil {
 			break
 		}
@@ -286,6 +298,45 @@ func main() {
 				}
 			}
 		}
+	case "scenario":
+		fs := flag.NewFlagSet("scenario", flag.ExitOnError)
+		scale := fs.String("scale", "large", "scale of the one server (small|medium|large|xl or any hcloud server type)")
+		customers := fs.Int("customers", 1000, "customers added flat out before the years")
+		years := fs.Int("years", 7, "simulated years run flat out")
+		dayLength := fs.Duration("day-length", 24*time.Hour, "day length set after the years: wall clock")
+		search := fs.String("search", "Smith", "the name the customer search is probed with")
+		keep := fs.Bool("keep", false, "leave the server up at the end")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
+		journalDir := fs.String("journal", "journal", "folder the run's page and index line are written into; \"\" to only print the page")
+		_ = fs.Parse(args)
+		name := env.Name
+		if name != "seven-years" {
+			err = fmt.Errorf("unknown scenario %q: the scenarios are seven-years", name)
+			break
+		}
+		cfg := scenario.Config{Name: name, Customers: *customers, Years: *years, DayLength: *dayLength, Search: *search}
+		env = deploy.Environment{Name: name + "-" + *scale}
+		var database *sql.DB
+		var runs *sqlstore.Store
+		var scenarioStore *scenario.Store
+		database, runs, _, _, scenarioStore, err = openDatabase(ctx, *dbFile)
+		if err != nil {
+			break
+		}
+		defer database.Close()
+		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore}
+		var rec *scenario.Run
+		rec, err = flow.Run(ctx, env, *scale, cfg, *keep, os.Stdout)
+		if rec != nil {
+			if *journalDir == "" {
+				fmt.Println("\n" + scenario.Page(*rec))
+			} else if path, jerr := writeJournal(*journalDir, *rec); jerr != nil {
+				fmt.Fprintln(os.Stderr, "journal not written:", jerr)
+				fmt.Println("\n" + scenario.Page(*rec))
+			} else {
+				fmt.Printf("\n%s written and listed in %s: annotate it and commit\n", path, filepath.Join(*journalDir, "index.md"))
+			}
+		}
 	default:
 		usage()
 	}
@@ -308,34 +359,62 @@ func updateBenchmarkDoc(path string, rows []string) error {
 	return os.WriteFile(path, []byte(out), 0o644)
 }
 
+// writeJournal writes the run's page into the journal folder, unless a
+// page of that name exists (a page is never touched after it is
+// written), and puts its line at the top of the folder's index.
+func writeJournal(dir string, r scenario.Run) (string, error) {
+	path := filepath.Join(dir, scenario.Filename(r))
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("%s exists and is not overwritten", path)
+	}
+	if err := os.WriteFile(path, []byte(scenario.Page(r)), 0o644); err != nil {
+		return "", err
+	}
+	indexPath := filepath.Join(dir, "index.md")
+	b, err := os.ReadFile(indexPath)
+	if err != nil {
+		return path, err
+	}
+	out, err := scenario.UpdateIndex(string(b), r)
+	if err != nil {
+		return path, err
+	}
+	return path, os.WriteFile(indexPath, []byte(out), 0o644)
+}
+
 // openDatabase opens the pglike file (created if absent, its directory
 // too) and brings every component's schema up to date: gobank-workflow's
-// run records, this program's drills and its performance runs, each
-// versioned in its own migrations table.
-func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, *perf.Store, error) {
+// run records, this program's drills, its performance runs and its
+// scenario runs, each versioned in its own migrations table.
+func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, *perf.Store, *scenario.Store, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	d, err := sql.Open("pglike", file)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
 	}
 	runs, err := sqlstore.New(d)
 	if err != nil {
 		d.Close()
-		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
 	ds, err := drills.New(ctx, d)
 	if err != nil {
 		d.Close()
-		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
 	ps, err := perf.New(ctx, d)
 	if err != nil {
 		d.Close()
-		return nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
-	return d, runs, ds, ps, nil
+	ss, err := scenario.New(ctx, d)
+	if err != nil {
+		d.Close()
+		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	}
+	return d, runs, ds, ps, ss, nil
 }
 
 // dnsFor is the Route 53 provider for domain, or nil (with a notice) when

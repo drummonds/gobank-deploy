@@ -1,0 +1,11 @@
+direction: right
+
+scenario: "scenario — one instance per environment scale date" {
+  create: "create" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  add: "add" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  years: "years" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  wallclock: "wallclock" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  probe: "probe" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  remove: "remove" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/scenario.go"}
+  create -> add -> years -> wallclock -> probe -> remove
+}

@@ -19,6 +19,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/scenario"
 )
 
 // fakeOperator reports canned statuses and records actions. Actions block
@@ -44,6 +45,7 @@ type fakeOperator struct {
 	steps     map[string][]wf.StepResult
 	perfs     []demoCall
 	perfRuns  []perf.Run
+	scenarios []scenario.Run
 }
 
 func (f *fakeOperator) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {

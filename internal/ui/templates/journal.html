@@ -1,0 +1,26 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      <h1 class="title is-4">Journal</h1>
+      <p class="mb-4">The notebook of scenario runs as this host made them: each run's steps with their figures and the
+        probes of the staff pages, as the page <code>gobank-deploy scenario</code> writes into the repository's
+        <code>journal/</code> folder for the operator to annotate. This host may have no checkout, so the page and its
+        index line are here to copy; the <a href="https://gobank-deploy.docs.bytestone.uk/journal/">published journal</a>
+        is the folder rendered.</p>
+      {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
+      {{if not .runs}}<p class="has-text-grey">No scenario runs yet. Start one with <code>gobank-deploy scenario seven-years</code>.</p>{{end}}
+      {{range .runs}}
+      <div class="box">
+        <p class="has-text-weight-bold">{{.Title}} · <a href="/workflows/{{.RunID}}">details</a></p>
+        {{with .Run}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
+        {{if .Steps}}{{template "steps" .Steps}}{{end}}
+        <p class="is-size-7">For <code>journal/{{.Filename}}</code>; the line for <code>journal/index.md</code>: <code>{{.IndexLine}}</code></p>
+        <pre class="is-size-7">{{.Page}}</pre>
+      </div>
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>

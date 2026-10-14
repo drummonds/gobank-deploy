@@ -152,6 +152,33 @@ the **Performance** page is the history, each run with its row for
 gobank's `benchmark.md`. A run creates a billable server for about half an
 hour, so it is started on purpose, never by a schedule.
 
+### Scenarios and the journal: the scenario workflow
+
+`tp secrets gobank-deploy scenario seven-years` runs a scenario — a named
+configuration driven through timed steps on a fresh environment named
+`<scenario>-<scale>` — as a workflow: `create` (up -create at the scale; a
+server that exists is kept), `add` (the demo set flat out with room for
+the customers asked for, `-customers 1000`, added in batches at the rate
+the demo reports), `years` (Run flat out until the bank's day is
+`-years 7` on from where it started, give or take a poll: days run,
+account days per 12h and the last day), `wallclock` (the day length set to
+`-day-length 24h` and the bank waited for until it follows the clock),
+`probe` (the dashboard, the customer search by name `-search Smith` and the
+first customer it lists, fetched from outside as the operator at
+concurrency 1 and 4, twenty times each: p50 and p95; then Stop), `remove`
+(down, unless `-keep`). The run is kept in the `-db` database and written
+as a page of the **journal**, the notebook in this repository's `journal/`
+folder: `journal/<date>-<scenario>-<scale>.md` with the configuration,
+steps and probes tables and an empty Notes section for your hand, and its
+line at the top of `journal/index.md` (`-journal DIR` to say where, `""`
+to only print the page). A page is written once and never touched again;
+hand-written pages go in the folder and on the index too. The ui's
+**Journal** page under About shows the same for runs driven from a host
+with no checkout. The first scenario, `seven-years`, is the instrument for
+gobank's milestone 1 (gobank #151): the capacity of one synchronous system
+over seven years. At 1,000 customers a run is an afternoon of billable
+server, so it is started on purpose, never by a schedule.
+
 ### Temporary environments: the demo workflow
 
 "Remove after" on either Create form runs the **demo** workflow instead of

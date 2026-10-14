@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- The scenario workflow and the journal (#18, gobank milestone 1 #151):
+  `gobank-deploy scenario seven-years` creates an environment at a scale,
+  adds the customers flat out, runs seven years flat out, sets the day
+  length to wall clock, probes the dashboard, the customer search by name
+  and a customer's page from outside at concurrency 1 and 4, and removes
+  the server; every step is recorded with its figures and the run is
+  written as a page of `journal/`, the notebook of runs with the
+  operator's notes, listed in `journal/index.md` and on the docs site.
+  The ui's Journal page under About shows the runs this host made with
+  the page to copy.
 - An API token per environment (gobank story 9.4): `up` generates one as
   it does the passwords, keeps it on the server's labels, writes it to the
   deploy env as `GOBANK_API_TOKEN`, and `status` and the ui show it. The

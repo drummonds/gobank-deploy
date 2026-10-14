@@ -38,9 +38,7 @@ func Measure(ctx context.Context, n, concurrency int, call func(ctx context.Cont
 			break
 		}
 		slots <- struct{}{}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-slots }()
 			d, err := call(ctx)
 			mu.Lock()
@@ -53,7 +51,7 @@ func Measure(ctx context.Context, n, concurrency int, call func(ctx context.Cont
 				return
 			}
 			took = append(took, d)
-		}()
+		})
 	}
 	wg.Wait()
 	if first != nil {

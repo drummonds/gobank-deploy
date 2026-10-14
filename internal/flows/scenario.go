@@ -52,6 +52,10 @@ type ScenarioConsole interface {
 // long it took.
 type Prober interface {
 	Fetch(ctx context.Context, url, token string) (body string, took time.Duration, err error)
+	// Post submits a form and returns the page it answers with, the way
+	// Fetch does: the customer search takes its name this way, never in
+	// a URL.
+	Post(ctx context.Context, url, token string, form url.Values) (body string, took time.Duration, err error)
 }
 
 // Scenario runs the scenario workflow.
@@ -114,7 +118,7 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 		scale = "small"
 	}
 	if cfg.Search == "" {
-		cfg.Search = "Smith"
+		cfg.Search = "Jones"
 	}
 	key := fmt.Sprintf("%s %s %s", env.Name, scale, s.now().Format("2006-01-02"))
 	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out}
@@ -409,12 +413,19 @@ func (r *scenarioRun) probe(ctx context.Context) error {
 	started := r.s.now()
 	rec.Probes = nil
 	var probes []scenario.Probe
-	measure := func(route, path string) (string, error) {
+	get := func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Fetch(ctx, url, st.APIToken)
+	}
+	search := url.Values{"name": {r.cfg.Search}}
+	post := func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Post(ctx, url, st.APIToken, search)
+	}
+	measure := func(route, path string, fetch func(ctx context.Context, url string) (string, time.Duration, error)) (string, error) {
 		var mu sync.Mutex
 		var body string
 		for _, c := range []int{1, 4} {
 			sample, err := probe.Measure(ctx, r.s.samples(), c, func(ctx context.Context) (time.Duration, error) {
-				b, took, err := r.s.Prober.Fetch(ctx, base+path, st.APIToken)
+				b, took, err := fetch(ctx, base+path)
 				mu.Lock()
 				if body == "" {
 					body = b
@@ -430,15 +441,15 @@ func (r *scenarioRun) probe(ctx context.Context) error {
 		}
 		return body, nil
 	}
-	if _, err := measure("dashboard", "/"); err != nil {
+	if _, err := measure("dashboard", "/", get); err != nil {
 		return err
 	}
-	body, err := measure("customer search by name", "/customers?q="+url.QueryEscape(r.cfg.Search))
+	body, err := measure("customer search by name", "/customers/search", post)
 	if err != nil {
 		return err
 	}
 	if m := customerLink.FindStringSubmatch(body); m != nil {
-		if _, err := measure("customer page", m[1]); err != nil {
+		if _, err := measure("customer page", m[1], get); err != nil {
 			return err
 		}
 	} else {

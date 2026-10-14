@@ -19,8 +19,8 @@ var sample = Run{
 			Figures: []Figure{{"days", "2,556"}, {"account days / 12h", "13,367,814"}}},
 	},
 	Probes: []Probe{
-		{Route: "customer search by name", Path: "/customers?q=Smith", Concurrency: 1, N: 20, P50: 120 * time.Millisecond, P95: 310 * time.Millisecond},
-		{Route: "customer search by name", Path: "/customers?q=Smith", Concurrency: 4, N: 20, P50: 150 * time.Millisecond, P95: 420 * time.Millisecond},
+		{Route: "customer search by name", Path: "/customers/search", Concurrency: 1, N: 20, P50: 120 * time.Millisecond, P95: 310 * time.Millisecond},
+		{Route: "customer search by name", Path: "/customers/search", Concurrency: 4, N: 20, P50: 150 * time.Millisecond, P95: 420 * time.Millisecond},
 	},
 }
 
@@ -45,8 +45,8 @@ func TestPageHasTheRunItsTablesAndRoomForNotes(t *testing.T) {
 		"| Search | Smith |",
 		"| add | 09:01:00 | 2m | customers 1,000; customers/s 8.3 |",
 		"| years | 09:03:00 | 3h12m | days 2,556; account days / 12h 13,367,814 |",
-		"| customer search by name | `/customers?q=Smith` | 1 | 20 | 120ms | 310ms |",
-		"| customer search by name | `/customers?q=Smith` | 4 | 20 | 150ms | 420ms |",
+		"| customer search by name | `/customers/search` | 1 | 20 | 120ms | 310ms |",
+		"| customer search by name | `/customers/search` | 4 | 20 | 150ms | 420ms |",
 		"/workflows/run-1",
 	} {
 		if !strings.Contains(p, want) {

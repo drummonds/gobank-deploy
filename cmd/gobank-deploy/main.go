@@ -88,7 +88,7 @@ func usage() {
                                                        rows written into gobank's performance doc PATH
                                                        (default <-src>/benchmark.md) for you to commit
   gobank-deploy scenario <name> [-scale large] [-customers 1000] [-years 7] [-day-length 24h]
-                        [-search Smith] [-keep] [-db FILE] [-journal DIR]
+                        [-search Jones] [-keep] [-db FILE] [-journal DIR]
                                                        run the named scenario (seven-years) on a fresh
                                                        environment <name>-<scale>: create, add the customers
                                                        flat out, run the years flat out, set the day length
@@ -304,7 +304,7 @@ func main() {
 		customers := fs.Int("customers", 1000, "customers added flat out before the years")
 		years := fs.Int("years", 7, "simulated years run flat out")
 		dayLength := fs.Duration("day-length", 24*time.Hour, "day length set after the years: wall clock")
-		search := fs.String("search", "Smith", "the name the customer search is probed with")
+		search := fs.String("search", "Jones", "the name the customer search is probed with (posted, never in a URL)")
 		keep := fs.Bool("keep", false, "leave the server up at the end")
 		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
 		journalDir := fs.String("journal", "journal", "folder the run's page and index line are written into; \"\" to only print the page")

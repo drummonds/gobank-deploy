@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -58,10 +59,17 @@ func (p *fakeProber) Fetch(_ context.Context, url, _ string) (string, time.Durat
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.urls = append(p.urls, url)
-	if strings.Contains(url, "/customers?q=") {
+	return "<html>page</html>", 80 * time.Millisecond, nil
+}
+
+func (p *fakeProber) Post(_ context.Context, url, _ string, form neturl.Values) (string, time.Duration, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.urls = append(p.urls, url)
+	if strings.HasSuffix(url, "/customers/search") && form.Get("name") == "Smith" {
 		return `<ul><li><a href="/customers/abc-123">Ann Smith</a></li></ul>`, 120 * time.Millisecond, nil
 	}
-	return "<html>page</html>", 80 * time.Millisecond, nil
+	return "", 0, fmt.Errorf("unexpected post %s %v", url, form)
 }
 
 func (p *fakeProber) count(suffix string) int {
@@ -164,7 +172,7 @@ func TestSevenYearsScenario(t *testing.T) {
 
 	// Three routes at two concurrencies, Samples each; the customer page
 	// found from the search.
-	for _, suffix := range []string{"/", "/customers?q=Smith", "/customers/abc-123"} {
+	for _, suffix := range []string{"/", "/customers/search", "/customers/abc-123"} {
 		if n := h.prob.count(suffix); n != 40 {
 			t.Errorf("%s fetched %d times; want 20 at each of concurrency 1 and 4", suffix, n)
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -24,6 +25,22 @@ func (p *Browser) Fetch(ctx context.Context, url, token string) (string, time.Du
 	if err != nil {
 		return "", 0, err
 	}
+	return p.do(req, token)
+}
+
+// Post submits form to url with the token, as a browser submits a form,
+// and returns the page it answers with the way Fetch does. The customer
+// search takes its name this way: personal data never goes in a URL.
+func (p *Browser) Post(ctx context.Context, url, token string, form url.Values) (string, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return p.do(req, token)
+}
+
+func (p *Browser) do(req *http.Request, token string) (string, time.Duration, error) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -44,10 +61,10 @@ func (p *Browser) Fetch(ctx context.Context, url, token string) (string, time.Du
 		return "", took, err
 	}
 	if loc := resp.Header.Get("Location"); resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.Contains(loc, "login") {
-		return "", took, fmt.Errorf("%s: %w", url, ErrLoginWanted)
+		return "", took, fmt.Errorf("%s: %w", req.URL, ErrLoginWanted)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", took, fmt.Errorf("%s: %s", url, resp.Status)
+		return "", took, fmt.Errorf("%s: %s", req.URL, resp.Status)
 	}
 	return string(body), took, nil
 }

@@ -163,8 +163,9 @@ the demo reports), `years` (Run flat out until the bank's day is
 `-years 7` on from where it started, give or take a poll: days run,
 account days per 12h and the last day), `wallclock` (the day length set to
 `-day-length 24h` and the bank waited for until it follows the clock),
-`probe` (the dashboard, the customer search by name `-search Smith` and the
-first customer it lists, fetched from outside as the operator at
+`probe` (the dashboard, the customer search by name `-search Jones` — the
+name posted in the form, never in a URL, as gobank's search takes it — and
+the first customer it lists, fetched from outside as the operator at
 concurrency 1 and 4, twenty times each: p50 and p95; then Stop), `remove`
 (down, unless `-keep`). The run is kept in the `-db` database and written
 as a page of the **journal**, the notebook in this repository's `journal/`

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-14
+
+ - Performance run to targets: 10,000 customers, then seven years or six hours (#24)
+
 ### Changed
 - The performance run (#24) runs to targets instead of ten minutes a
   stage: `add` until the books hold 10,000 customers, `days` until the

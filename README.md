@@ -180,6 +180,27 @@ gobank's milestone 1 (gobank #151): the capacity of one synchronous system
 over seven years. At 1,000 customers a run is an afternoon of billable
 server, so it is started on purpose, never by a schedule.
 
+### The full performance scan: the scan workflow
+
+`tp secrets gobank-deploy scan <env>` scans an environment as it stands,
+no server made or removed: `survey` (the environment must be serving;
+where the scan is, and the customers on the books), `scan` (every route
+the demo's `/v1/openapi.json` lists that the scan can drive — a GET
+without path parameters as the operator on the API token, or as a
+customer signed in on the app password by what the route's security says,
+and the customer search by its post, `-search Jones` — loaded at each
+rung of `-ladder 1,4,16`, `-samples 20` calls each: p50, p95 and the
+throughput; a route with a path parameter, a post other than the search,
+or one that fails is listed as not scanned with why, so the coverage is
+visible). The scan is a run of the journal like a scenario, and it writes
+the **measured document**, `-doc` (default `<-src>/api/measured.json` in
+gobank's checkout): the date, gobank version, environment, server and
+customers, a row per route and rung, and the routes not scanned. gobank's
+About → API pages show it alongside each route's facts, so the API is
+documented with what it measured; commit the document and release gobank
+to publish it. A scan at 16 in flight is load: run it on preprod or a
+scenario's kept server, not prod.
+
 ### Temporary environments: the demo workflow
 
 "Remove after" on either Create form runs the **demo** workflow instead of

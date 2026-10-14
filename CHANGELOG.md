@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The concurrency ladder (#21): the scenario's probe loads each route at
+  1, 4 and 16 in flight (`-ladder`) and records the throughput it
+  achieved beside p50 and p95; the journal's probes table gains the
+  method and the per-second column.
+- The scan workflow (#21): `gobank-deploy scan <env>` is a full
+  performance scan of an environment as it stands — every route the
+  demo's API document lists that the scan can drive, as the operator or
+  as a customer, at each rung of the ladder, the rest listed as not
+  scanned with why — kept as a run of the journal and written as the
+  measured document `api/measured.json` into gobank's checkout for its
+  API pages to show alongside each route.
+
 ## [0.18.0] - 2026-10-14
 
 ### Changed

@@ -53,6 +53,12 @@ func TestMeasureRunsCallsAtTheConcurrency(t *testing.T) {
 	if s.N != 40 || peak != 4 {
 		t.Errorf("made %d calls with %d in flight at the peak; want 40 at 4", s.N, peak)
 	}
+	// Forty 5ms calls four at a time take about 50ms of wall clock: the
+	// throughput is what was completed over that, not over the calls' own
+	// time.
+	if s.Elapsed < 50*time.Millisecond || s.Elapsed > 500*time.Millisecond || s.PerSecond < 80 || s.PerSecond > 800 {
+		t.Errorf("elapsed %s, %.0f/s; want about 50ms and 800/s", s.Elapsed, s.PerSecond)
+	}
 }
 
 // A failing call fails the measurement: a route that errors has no

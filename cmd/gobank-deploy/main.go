@@ -45,6 +45,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,7 +97,16 @@ func usage() {
                                                        remove (unless -keep); the run is kept in FILE and
                                                        written as a page of the journal folder DIR (default
                                                        journal) with its line in DIR/index.md, for you to
-                                                       annotate and commit
+                                                       annotate and commit; -ladder 1,4,16 the concurrencies
+                                                       the staff pages are probed at
+  gobank-deploy scan <env> [-ladder 1,4,16] [-samples 20] [-search Jones] [-db FILE] [-journal DIR]
+                        [-doc PATH]                    full performance scan of <env> as it stands: every
+                                                       route the demo's API document lists that the scan can
+                                                       drive, loaded at each rung of the ladder, the rest
+                                                       listed as not scanned; a page of the journal, and the
+                                                       measured document written to PATH (default
+                                                       <-src>/api/measured.json) for gobank's API pages,
+                                                       for you to commit and release
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -306,6 +316,7 @@ func main() {
 		dayLength := fs.Duration("day-length", 24*time.Hour, "day length set after the years: wall clock")
 		search := fs.String("search", "Jones", "the name the customer search is probed with (posted, never in a URL)")
 		keep := fs.Bool("keep", false, "leave the server up at the end")
+		ladder := fs.String("ladder", "1,4,16", "concurrencies the staff pages are probed at")
 		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
 		journalDir := fs.String("journal", "journal", "folder the run's page and index line are written into; \"\" to only print the page")
 		_ = fs.Parse(args)
@@ -324,17 +335,42 @@ func main() {
 			break
 		}
 		defer database.Close()
-		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore}
+		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore, Ladder: parseLadder(*ladder)}
 		var rec *scenario.Run
 		rec, err = flow.Run(ctx, env, *scale, cfg, *keep, os.Stdout)
 		if rec != nil {
-			if *journalDir == "" {
-				fmt.Println("\n" + scenario.Page(*rec))
-			} else if path, jerr := writeJournal(*journalDir, *rec); jerr != nil {
-				fmt.Fprintln(os.Stderr, "journal not written:", jerr)
-				fmt.Println("\n" + scenario.Page(*rec))
-			} else {
-				fmt.Printf("\n%s written and listed in %s: annotate it and commit\n", path, filepath.Join(*journalDir, "index.md"))
+			reportRun(*journalDir, *rec)
+		}
+	case "scan":
+		fs := flag.NewFlagSet("scan", flag.ExitOnError)
+		ladder := fs.String("ladder", "1,4,16", "concurrencies each route is loaded at")
+		samples := fs.Int("samples", 20, "calls per route per rung")
+		search := fs.String("search", "Jones", "the name the customer search is posted with")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
+		journalDir := fs.String("journal", "journal", "folder the run's page and index line are written into; \"\" to only print the page")
+		doc := fs.String("doc", filepath.Join(*src, "api", "measured.json"), "gobank's measured document, for its API pages; \"\" to not write it")
+		_ = fs.Parse(args)
+		var database *sql.DB
+		var runs *sqlstore.Store
+		var scenarioStore *scenario.Store
+		database, runs, _, _, scenarioStore, err = openDatabase(ctx, *dbFile)
+		if err != nil {
+			break
+		}
+		defer database.Close()
+		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore, Ladder: parseLadder(*ladder), Samples: *samples}
+		var rec *scenario.Run
+		rec, err = flow.Scan(ctx, env, *search, os.Stdout)
+		if rec != nil {
+			reportRun(*journalDir, *rec)
+			if *doc != "" {
+				if b, merr := scenario.MeasuredJSON(*rec); merr != nil {
+					fmt.Fprintln(os.Stderr, "measured document not written:", merr)
+				} else if werr := os.WriteFile(*doc, b, 0o644); werr != nil {
+					fmt.Fprintln(os.Stderr, "measured document not written:", werr)
+				} else {
+					fmt.Printf("%s written: commit it and release gobank so its API pages carry the scan\n", *doc)
+				}
 			}
 		}
 	default:
@@ -357,6 +393,34 @@ func updateBenchmarkDoc(path string, rows []string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(out), 0o644)
+}
+
+// parseLadder reads "1,4,16"; a rung that does not parse is dropped and
+// an empty ladder leaves the flow's default.
+func parseLadder(s string) []int {
+	var out []int
+	for part := range strings.SplitSeq(s, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// reportRun puts the run into the journal folder, or prints its page
+// when there is no folder or the page could not be written.
+func reportRun(journalDir string, rec scenario.Run) {
+	if journalDir == "" {
+		fmt.Println("\n" + scenario.Page(rec))
+		return
+	}
+	path, err := writeJournal(journalDir, rec)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "journal not written:", err)
+		fmt.Println("\n" + scenario.Page(rec))
+		return
+	}
+	fmt.Printf("\n%s written and listed in %s: annotate it and commit\n", path, filepath.Join(journalDir, "index.md"))
 }
 
 // writeJournal writes the run's page into the journal folder, unless a

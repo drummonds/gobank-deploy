@@ -49,17 +49,38 @@ func (c *scenarioConsole) SetDayLength(_ context.Context, _, _ string, d time.Du
 }
 
 // fakeProber answers every page in a fixed time; the customer search
-// lists one customer, so the customer page can be found from it.
+// lists one customer, so the customer page can be found from it. pages
+// are bodies by path for what a scan reads; tokens the bearer each URL
+// was fetched with.
 type fakeProber struct {
-	mu   sync.Mutex
-	urls []string
+	mu     sync.Mutex
+	urls   []string
+	pages  map[string]string
+	tokens map[string]string
+	logins []string
 }
 
-func (p *fakeProber) Fetch(_ context.Context, url, _ string) (string, time.Duration, error) {
+func (p *fakeProber) Fetch(_ context.Context, url, token string) (string, time.Duration, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.urls = append(p.urls, url)
+	if p.tokens == nil {
+		p.tokens = map[string]string{}
+	}
+	p.tokens[url] = token
+	for path, body := range p.pages {
+		if strings.HasSuffix(url, path) {
+			return body, 80 * time.Millisecond, nil
+		}
+	}
 	return "<html>page</html>", 80 * time.Millisecond, nil
+}
+
+func (p *fakeProber) Login(_ context.Context, base, customerID, password string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logins = append(p.logins, customerID+":"+password)
+	return "tok-" + customerID, nil
 }
 
 func (p *fakeProber) Post(_ context.Context, url, _ string, form neturl.Values) (string, time.Duration, error) {
@@ -107,7 +128,7 @@ func newScenarioHarness(t *testing.T) *scenarioHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &scenarioHarness{ops: &perfOps{version: "v0.49.0", servers: map[string]*deploy.Server{}}, runs: wf.NewMemStore(), store: store, now: start, prob: &fakeProber{}}
+	h := &scenarioHarness{ops: &perfOps{version: "v0.49.0", servers: map[string]*deploy.Server{}, token: "op-tok", appPassword: "pw"}, runs: wf.NewMemStore(), store: store, now: start, prob: &fakeProber{}}
 	clock := func() time.Time { h.clock.Lock(); defer h.clock.Unlock(); return h.now }
 	// Flat out a simulated day passes every ten seconds, one per poll.
 	h.con = &scenarioConsole{perfConsole: &perfConsole{ops: h.ops, now: clock, batchTime: time.Minute, dayTime: 10 * time.Second}}
@@ -170,18 +191,19 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("day lengths set %v; want 24h once, after the years", h.con.dayLengths)
 	}
 
-	// Three routes at two concurrencies, Samples each; the customer page
-	// found from the search.
+	// Three routes at each rung of the ladder, Samples each; the customer
+	// page found from the search.
 	for _, suffix := range []string{"/", "/customers/search", "/customers/abc-123"} {
-		if n := h.prob.count(suffix); n != 40 {
-			t.Errorf("%s fetched %d times; want 20 at each of concurrency 1 and 4", suffix, n)
+		if n := h.prob.count(suffix); n != 60 {
+			t.Errorf("%s fetched %d times; want 20 at each of concurrency 1, 4 and 16", suffix, n)
 		}
 	}
 
 	if rec == nil {
 		t.Fatal("no record")
 	}
-	if rec.Environment != "seven-years" || rec.Scale != "large" || rec.ServerType != "ccx33" || rec.MemoryGB != 32 || rec.Version != "v0.49.0" || rec.Config != sevenYears {
+	if rec.Environment != "seven-years" || rec.Scale != "large" || rec.ServerType != "ccx33" || rec.MemoryGB != 32 || rec.Version != "v0.49.0" ||
+		rec.Config.Name != sevenYears.Name || rec.Config.Customers != sevenYears.Customers || rec.Config.Years != sevenYears.Years || rec.Config.DayLength != sevenYears.DayLength || rec.Config.Search != sevenYears.Search {
 		t.Errorf("where it ran and what was asked = %+v", rec)
 	}
 	var names []string
@@ -201,13 +223,16 @@ func TestSevenYearsScenario(t *testing.T) {
 	if figure(wall, "last day") != "1m25s" {
 		t.Errorf("wallclock = %+v; want the pass at wall clock", wall)
 	}
-	if len(rec.Probes) != 6 {
-		t.Fatalf("probes = %+v; want three routes at two concurrencies", rec.Probes)
+	if len(rec.Probes) != 9 {
+		t.Fatalf("probes = %+v; want three routes at three rungs", rec.Probes)
 	}
 	for _, p := range rec.Probes {
-		if p.N != 20 || (p.Concurrency != 1 && p.Concurrency != 4) || p.P50 == 0 || p.P95 == 0 || p.Route == "" || !strings.HasPrefix(p.Path, "/") {
+		if p.N != 20 || (p.Concurrency != 1 && p.Concurrency != 4 && p.Concurrency != 16) || p.P50 == 0 || p.P95 == 0 || p.PerSecond <= 0 || p.Route == "" || p.Method == "" || !strings.HasPrefix(p.Path, "/") {
 			t.Errorf("probe = %+v", p)
 		}
+	}
+	if fmt.Sprint(rec.Config.Ladder) != "[1 4 16]" || rec.Config.Samples != 20 {
+		t.Errorf("the ladder and samples are recorded on the run: %+v", rec.Config)
 	}
 
 	runs, _ := h.runs.ListRuns(context.Background(), 1)
@@ -228,7 +253,7 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("record run id %s; want the workflow run's %s", rec.RunID, runs[0].ID)
 	}
 	stored, err := h.store.Get(context.Background(), rec.RunID)
-	if err != nil || stored == nil || len(stored.Steps) != 4 || len(stored.Probes) != 6 {
+	if err != nil || stored == nil || len(stored.Steps) != 4 || len(stored.Probes) != 9 {
 		t.Errorf("stored = %+v, %v; want the run as returned", stored, err)
 	}
 	if out := h.out.String(); !strings.Contains(out, "days") || !strings.Contains(out, "p95") {

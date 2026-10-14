@@ -56,7 +56,14 @@ type Prober interface {
 	// Fetch does: the customer search takes its name this way, never in
 	// a URL.
 	Post(ctx context.Context, url, token string, form url.Values) (body string, took time.Duration, err error)
+	// Login signs a customer in to the demo at base and returns the
+	// session token the customer routes take as a bearer.
+	Login(ctx context.Context, base, customerID, password string) (token string, err error)
 }
+
+// fetcher fetches one URL and says how long it took: a GET as the
+// operator, a POST of the search, a GET as a customer.
+type fetcher func(ctx context.Context, url string) (string, time.Duration, error)
 
 // Scenario runs the scenario workflow.
 type Scenario struct {
@@ -70,8 +77,16 @@ type Scenario struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	Poll  time.Duration // how often a step looks at the demo; default 10s
 
-	Batch   int // customers per add; default 1000
-	Samples int // calls per route per concurrency; default 20
+	Batch   int   // customers per add; default 1000
+	Samples int   // calls per route per rung; default 20
+	Ladder  []int // the concurrencies each route is probed at; default 1, 4, 16
+}
+
+func (s *Scenario) ladder() []int {
+	if len(s.Ladder) > 0 {
+		return s.Ladder
+	}
+	return []int{1, 4, 16}
 }
 
 func (s *Scenario) now() time.Time {
@@ -120,8 +135,9 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 	if cfg.Search == "" {
 		cfg.Search = "Jones"
 	}
+	cfg.Ladder, cfg.Samples = s.ladder(), s.samples()
 	key := fmt.Sprintf("%s %s %s", env.Name, scale, s.now().Format("2006-01-02"))
-	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out}
+	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out, wfType: WorkflowScenario}
 	stages := []wf.Stage{
 		{Name: "create", Run: run.create},
 		{Name: "add", Run: run.add},
@@ -149,19 +165,20 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 }
 
 type scenarioRun struct {
-	s     *Scenario
-	env   deploy.Environment
-	scale string
-	cfg   scenario.Config
-	key   string
-	out   io.Writer
-	runID string
+	s      *Scenario
+	env    deploy.Environment
+	scale  string
+	cfg    scenario.Config
+	key    string
+	out    io.Writer
+	wfType wf.WorkflowType // the scenario workflow, or the scan
+	runID  string
 }
 
 // resolve is the id of the workflow run the pipeline made for the key.
 func (r *scenarioRun) resolve(ctx context.Context) (string, error) {
 	if r.runID == "" {
-		run, err := r.s.Store.FindRunByKey(ctx, WorkflowScenario, r.key)
+		run, err := r.s.Store.FindRunByKey(ctx, r.wfType, r.key)
 		if err != nil || run == nil {
 			return "", fmt.Errorf("finding the run for %s: %v", r.key, err)
 		}
@@ -396,9 +413,51 @@ func (r *scenarioRun) wallclock(ctx context.Context) error {
 
 var customerLink = regexp.MustCompile(`href="(/customers/[^"/?#]+)"`)
 
-// probe measures the staff pages from outside at concurrency 1 and 4:
-// the dashboard, the customer search by name, and the first customer the
-// search lists. Then the run is stopped.
+// asOperator fetches as the operator, on the environment's API token.
+func (r *scenarioRun) asOperator(st deploy.Status) fetcher {
+	return func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Fetch(ctx, url, st.APIToken)
+	}
+}
+
+// searching posts the customer search with the run's name, as the
+// operator: the name travels in the form, never in a URL.
+func (r *scenarioRun) searching(st deploy.Status) fetcher {
+	form := url.Values{"name": {r.cfg.Search}}
+	return func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Post(ctx, url, st.APIToken, form)
+	}
+}
+
+// rungs probes one route at every rung of the run's ladder, Samples
+// calls each, and returns the probes with the first body seen (the
+// search's, to find a customer in).
+func (r *scenarioRun) rungs(ctx context.Context, base, route, method, path string, fetch fetcher) ([]scenario.Probe, string, error) {
+	var mu sync.Mutex
+	var body string
+	var probes []scenario.Probe
+	for _, c := range r.cfg.Ladder {
+		sample, err := probe.Measure(ctx, r.cfg.Samples, c, func(ctx context.Context) (time.Duration, error) {
+			b, took, err := fetch(ctx, base+path)
+			mu.Lock()
+			if body == "" {
+				body = b
+			}
+			mu.Unlock()
+			return took, err
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("%s at concurrency %d: %w", route, c, err)
+		}
+		probes = append(probes, scenario.Probe{Route: route, Method: method, Path: path, Concurrency: c, N: sample.N, P50: sample.P50, P95: sample.P95, PerSecond: sample.PerSecond})
+		fmt.Fprintf(r.out, "%s %s %s at %d: p50 %s p95 %s %.1f/s over %d\n", route, method, path, c, scenario.Dur(sample.P50), scenario.Dur(sample.P95), sample.PerSecond, sample.N)
+	}
+	return probes, body, nil
+}
+
+// probe measures the staff pages from outside at each rung of the
+// ladder: the dashboard, the customer search by name, and the first
+// customer the search lists. Then the run is stopped.
 func (r *scenarioRun) probe(ctx context.Context) error {
 	fmt.Fprintln(r.out, "== probe")
 	rec, err := r.recorded(ctx)
@@ -411,54 +470,31 @@ func (r *scenarioRun) probe(ctx context.Context) error {
 	}
 	base := strings.TrimSuffix(st.URL, "/")
 	started := r.s.now()
-	rec.Probes = nil
 	var probes []scenario.Probe
-	get := func(ctx context.Context, url string) (string, time.Duration, error) {
-		return r.s.Prober.Fetch(ctx, url, st.APIToken)
-	}
-	search := url.Values{"name": {r.cfg.Search}}
-	post := func(ctx context.Context, url string) (string, time.Duration, error) {
-		return r.s.Prober.Post(ctx, url, st.APIToken, search)
-	}
-	measure := func(route, path string, fetch func(ctx context.Context, url string) (string, time.Duration, error)) (string, error) {
-		var mu sync.Mutex
-		var body string
-		for _, c := range []int{1, 4} {
-			sample, err := probe.Measure(ctx, r.s.samples(), c, func(ctx context.Context) (time.Duration, error) {
-				b, took, err := fetch(ctx, base+path)
-				mu.Lock()
-				if body == "" {
-					body = b
-				}
-				mu.Unlock()
-				return took, err
-			})
-			if err != nil {
-				return "", fmt.Errorf("%s at concurrency %d: %w", route, c, err)
-			}
-			probes = append(probes, scenario.Probe{Route: route, Path: path, Concurrency: c, N: sample.N, P50: sample.P50, P95: sample.P95})
-			fmt.Fprintf(r.out, "%s %s at %d: p50 %s p95 %s over %d\n", route, path, c, scenario.Dur(sample.P50), scenario.Dur(sample.P95), sample.N)
-		}
-		return body, nil
-	}
-	if _, err := measure("dashboard", "/", get); err != nil {
-		return err
-	}
-	body, err := measure("customer search by name", "/customers/search", post)
+	dash, _, err := r.rungs(ctx, base, "dashboard", "GET", "/", r.asOperator(st))
 	if err != nil {
 		return err
 	}
+	probes = append(probes, dash...)
+	found, body, err := r.rungs(ctx, base, "customer search by name", "POST", "/customers/search", r.searching(st))
+	if err != nil {
+		return err
+	}
+	probes = append(probes, found...)
 	if m := customerLink.FindStringSubmatch(body); m != nil {
-		if _, err := measure("customer page", m[1], get); err != nil {
+		page, _, err := r.rungs(ctx, base, "customer page", "GET", m[1], r.asOperator(st))
+		if err != nil {
 			return err
 		}
+		probes = append(probes, page...)
 	} else {
 		fmt.Fprintln(r.out, "the search listed no customer: customer page not probed")
 	}
 	rec.Probes = probes
 	if err := r.step(ctx, rec, scenario.Step{Name: "probe", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "routes", Value: fmt.Sprint(len(probes) / 2)},
-		{Label: "samples", Value: fmt.Sprint(r.s.samples())},
+		{Label: "routes", Value: fmt.Sprint(len(probes) / len(r.cfg.Ladder))},
+		{Label: "ladder", Value: fmt.Sprint(r.cfg.Ladder)},
+		{Label: "samples", Value: fmt.Sprint(r.cfg.Samples)},
 	}}); err != nil {
 		return err
 	}

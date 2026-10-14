@@ -21,11 +21,13 @@ import (
 // environment until Up creates one, which then serves a version; Down
 // removes it. Several runs may drive it at once.
 type perfOps struct {
-	mu      sync.Mutex
-	servers map[string]*deploy.Server
-	version string
-	ups     []deploy.UpOptions
-	downs   int
+	mu          sync.Mutex
+	servers     map[string]*deploy.Server
+	version     string
+	token       string // the environments' API token, as status reports it
+	appPassword string // and their app password
+	ups         []deploy.UpOptions
+	downs       int
 }
 
 func (o *perfOps) Status(_ context.Context, env deploy.Environment) (deploy.Status, error) {
@@ -33,7 +35,7 @@ func (o *perfOps) Status(_ context.Context, env deploy.Environment) (deploy.Stat
 	defer o.mu.Unlock()
 	st := deploy.Status{Server: o.servers[env.Name], URL: "http://" + env.Name + "/"}
 	if st.Server != nil {
-		st.Serving, st.Version = true, o.version
+		st.Serving, st.Version, st.APIToken, st.AppPassword = true, o.version, o.token, o.appPassword
 	}
 	return st, nil
 }

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- The scenario probe posts the customer search's name in the form, as
+  gobank's search (gobank #154) takes it, never in a URL; the default
+  name is Jones, a surname the demo's customers have.
+
 ## [0.17.0] - 2026-10-14
 
  - An API token per environment: the console client drives the demo as the operator (gobank story 9.4); a login redirect is a refusal, which is why the recent drills failed

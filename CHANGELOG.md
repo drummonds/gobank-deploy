@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-14
+
+ - An API token per environment: the console client drives the demo as the operator (gobank story 9.4); a login redirect is a refusal, which is why the recent drills failed
+
 ### Added
 - The scenario workflow and the journal (#18, gobank milestone 1 #151):
   `gobank-deploy scenario seven-years` creates an environment at a scale,

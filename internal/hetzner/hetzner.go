@@ -139,6 +139,9 @@ func (h *Cloud) CreateServer(ctx context.Context, spec deploy.CreateSpec) (*depl
 		Labels:     spec.Labels,
 		Firewalls:  []*hcloud.ServerCreateFirewall{{Firewall: *fw}},
 		Networks:   networks,
+		// IPv4 alone: an IPv6 primary IP counts against the project's
+		// limit as much as an IPv4 one, and nothing here uses it.
+		PublicNet: &hcloud.ServerCreatePublicNet{EnableIPv4: true, EnableIPv6: false},
 	})
 	if err != nil {
 		if hcloud.IsError(err, hcloud.ErrorCodeResourceUnavailable) {

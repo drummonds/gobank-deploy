@@ -243,6 +243,10 @@ func (h *Cloud) EnsureNetwork(ctx context.Context, n deploy.Network) error {
 	}
 	_, _, err = h.c.Network.Create(ctx, hcloud.NetworkCreateOpts{Name: n.Name, IPRange: ipRange, Labels: map[string]string{"project": "gobank"},
 		Subnets: []hcloud.NetworkSubnet{{Type: hcloud.NetworkSubnetTypeCloud, IPRange: subnet, NetworkZone: hcloud.NetworkZone(n.Zone)}}})
+	if hcloud.IsError(err, hcloud.ErrorCodeUniquenessError) {
+		// Another up made it between the look and the create: it exists.
+		return nil
+	}
 	return err
 }
 

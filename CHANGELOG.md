@@ -18,6 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (#39): a demo found stopped short of the target is pressed Run again,
   at most twice in a row, then the stage fails and the box goes. Seen on
   a v0.55.0 run left at day 0 with the box billing.
+- Ups at once no longer race to create the private network (#40): the
+  provider refusing a second create as a name already used is the
+  network existing. `perf -scales small,large` lost its large run to it.
 
 ## [0.23.0] - 2026-10-16
 

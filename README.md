@@ -155,6 +155,11 @@ the **Performance** page is the history, each run with its row for
 gobank's `benchmark.md`. A run creates a billable server for about half an
 hour, so it is started on purpose, never by a schedule.
 
+A short run has the same shape in tens of minutes: `-customers 100
+-days 10 -ceiling 1h` adds 100 customers, runs ten days instead of seven
+years, and gives the servers a three-hour expiry; pass `-doc ""` so its
+rows stay out of `benchmark.md`.
+
 ### Scenarios and the journal: the scenario workflow
 
 `tp secrets gobank-deploy scenario seven-years` runs a scenario — a named

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- A short perf run (#38): `gobank-deploy perf` takes `-customers`
+  (default 10,000), `-days` (the days stage runs that many days instead
+  of seven years) and `-ceiling` (default 6h; the servers' expiry follows
+  it), so the same shape — every scale at once, create, add, days,
+  routes, remove — gives figures in tens of minutes.
+
 ## [0.23.0] - 2026-10-16
 
  - Load test: the customer journey from a loader box over a private network, capacity at p95 2s a screen; firewalls admit home only (#26)

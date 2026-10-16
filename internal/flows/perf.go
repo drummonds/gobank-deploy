@@ -67,6 +67,7 @@ type Perf struct {
 
 	Customers    int           // the add stage runs the books up to this many; default 10,000
 	Years        int           // the days stage runs the bank this many years on, on its calendar; default 7
+	Days         int           // when set, the days stage runs this many days instead of the years: a short run
 	Ceiling      time.Duration // the most wall clock either stage runs for; default 6h
 	Batch        int           // customers per add; default 1000
 	MaxCustomers int           // the room set on the demo; default a million
@@ -430,7 +431,11 @@ func (r *perfRun) days(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the demo's day %q: %w", rd.Position.Day, err)
 	}
-	target, ceiling := day.AddDate(r.p.years(), 0, 0).Format("2006-01-02"), r.p.ceiling()
+	until := day.AddDate(r.p.years(), 0, 0)
+	if r.p.Days > 0 {
+		until = day.AddDate(0, 0, r.p.Days)
+	}
+	target, ceiling := until.Format("2006-01-02"), r.p.ceiling()
 	from, fromDay := rd.Position.DayCount, rd.Position.Day
 	if !rd.Running {
 		if err := r.p.Console.Start(ctx, st.URL, st.APIToken); err != nil {

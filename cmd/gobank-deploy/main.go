@@ -83,7 +83,7 @@ func usage() {
                                                        database FILE (default <-build>/gobank-deploy.db)
   gobank-deploy build [-out DIR]                        build cmd/demo for linux amd64+arm64 into a release
                                                        store (default build/releases); no token needed
-  gobank-deploy perf <env> [-scales small,large] [-db FILE] [-doc PATH]
+  gobank-deploy perf <env> [-scales small,large] [-customers 10000] [-days N] [-ceiling 6h] [-db FILE] [-doc PATH]
                                                        performance run at every scale at once, one server
                                                        each (<env>-<scale>): create, add customers flat out
                                                        to 10,000, run days for seven years or six hours,
@@ -321,6 +321,9 @@ func main() {
 		scales := fs.String("scales", "small,large", "scales to measure at once, one server each (small|medium|large|xl or any hcloud server type)")
 		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
 		doc := fs.String("doc", filepath.Join(*src, "benchmark.md"), "gobank's performance doc to put the rows into; \"\" to only print them")
+		customers := fs.Int("customers", 10_000, "customers the add stage runs the books up to")
+		days := fs.Int("days", 0, "days the days stage runs; 0 runs seven years")
+		ceiling := fs.Duration("ceiling", 6*time.Hour, "the most either stage runs; the servers expire after twice it and an hour")
 		_ = fs.Parse(args)
 		var st *stores
 		if st, err = openDatabase(ctx, *dbFile); err != nil {
@@ -334,7 +337,8 @@ func main() {
 				list = append(list, s)
 			}
 		}
-		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: runs, Perfs: perfStore}
+		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: runs, Perfs: perfStore,
+			Customers: *customers, Days: *days, Ceiling: *ceiling}
 		var records []perf.Run
 		records, err = perfFlow.RunAll(ctx, env, list, os.Stdout)
 		if len(records) > 0 {

@@ -431,3 +431,20 @@ func TestPerfFailureRemovesTheBoxAndTheNextAttemptStartsOver(t *testing.T) {
 		t.Errorf("run = %+v; want the same instance completed", runs[0])
 	}
 }
+
+// A short run stops the days stage after so many days instead of years:
+// the same shape as the full run, in minutes.
+func TestPerfRunsDaysUpToTheDaysWhenGiven(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers, h.flow.Days = 100, 10
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Customers != 100 || list[0].Days < 10 || list[0].Days > 11 {
+		t.Errorf("record = %+v; want 100 customers and 10 days (give or take a poll)", list)
+	}
+	if strings.Contains(h.out.String(), "ceiling") {
+		t.Errorf("the days were reached, not the ceiling:\n%s", h.out.String())
+	}
+}

@@ -135,6 +135,7 @@ can be handed out, and only an operator can press anything.
   matters, the external runner is this same image on a second server
   with a runner flag, created at will. Open: whether demo viewers go on
   the tailnet, which removes the public port altogether
+- #27 gobank.bytestone.uk: every environment and the engine at https://<name>.gobank.bytestone.uk, Caddy on each box for TLS, the zone on Hetzner DNS behind the existing DNS interface
 
 ## Rehearse then promote
 
@@ -153,6 +154,13 @@ gobank prerequisites above.
   elsewhere; logical replication for Postgres version upgrades and zone
   moves (researched in gobank-db)
 - #17 Masking step in the snapshot once real PII exists
+
+## Measure gobank against its milestones
+
+The scenario workflow as the instrument: what was asked, the budget it
+had, what it reached, and a verdict; the figures are the journal's pages
+and the customer journey is the user-facing measure.
+- #26 Customer journey probe: the staff pages walked in sequence as a member of staff would, timed per page and end to end, defined as data so the gates can run it
 
 ## Engine hardening
 

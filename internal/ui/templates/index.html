@@ -48,9 +48,12 @@
             <option value="large">large (ccx33, dedicated)</option>
             <option value="xl">xl (ccx43, dedicated)</option>
           </select></div></div>
+          <div class="control"><input class="input is-small" type="number" name="customers" min="1" placeholder="10000 customers" title="customers the add stage runs the books up to; blank is 10,000"></div>
+          <div class="control"><input class="input is-small" type="number" name="days" min="1" placeholder="days (7 years)" title="days the days stage runs; blank is seven years"></div>
+          <div class="control"><input class="input is-small" type="text" name="ceiling" placeholder="6h ceiling" pattern="[0-9]+(h|m)([0-9]+m)?" title="the most either stage runs, such as 30m or 2h; blank is six hours"></div>
           <div class="control"><button class="button is-small is-info">Measure</button></div>
         </div>
-        <small class="has-text-grey">starts billing for up to about six hours: a fresh environment at the scale, customers added flat out to 10,000, days run until the bank is seven years on or six hours have passed, both rates read off the demo, the server removed. The figures are on the <a href="/perf">Performance</a> page.</small>
+        <small class="has-text-grey">starts billing until the run ends, at most about twice the ceiling: a fresh environment at the scale, customers added flat out to the target, days run for the days given (else seven years) or until the ceiling, both rates read off the demo, the server removed. Blank fields are the full run: 10,000 customers, seven years, a six-hour ceiling; a short run such as 100 customers and 10 days gives figures in tens of minutes. The figures are on the <a href="/perf">Performance</a> page.</small>
       </form>
 
       <form method="post" action="/load" hx-post="/load" hx-target="#envs" hx-swap="outerHTML" hx-on::after-request="if (event.detail.successful) this.reset()" class="mb-5">

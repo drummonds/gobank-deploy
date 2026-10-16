@@ -45,6 +45,7 @@ type fakeOperator struct {
 	drills    []drills.Drill
 	steps     map[string][]wf.StepResult
 	perfs     []demoCall
+	targets   []PerfTargets // each perf run's targets, in order
 	perfRuns  []perf.Run
 	loads     []demoCall
 	loadRuns  []load.Run
@@ -70,9 +71,10 @@ func (f *fakeOperator) Loads(context.Context, int) ([]load.Run, error) {
 	return f.loadRuns, nil
 }
 
-func (f *fakeOperator) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+func (f *fakeOperator) Perf(ctx context.Context, env deploy.Environment, scale string, t PerfTargets, out io.Writer) error {
 	f.mu.Lock()
 	f.perfs = append(f.perfs, demoCall{env, scale})
+	f.targets = append(f.targets, t)
 	f.mu.Unlock()
 	fmt.Fprintf(out, "== create %s at %s\n", env.Name, scale)
 	select {
@@ -990,6 +992,37 @@ func TestPerfRunStartsTheWorkflowAsAJob(t *testing.T) {
 	_, body := get(t, ts, "/")
 	if !strings.Contains(body, "Working: perf") || !strings.Contains(body, "== create perf1 at large") {
 		t.Errorf("page should show the run with its log:\n%s", body)
+	}
+	close(op.release)
+}
+
+// A short run is the same run with smaller targets: the form's customers,
+// days and ceiling reach the workflow; left blank, each is the full run's.
+func TestPerfRunTakesItsTargetsFromTheForm(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, page := get(t, ts, "/")
+	for _, field := range []string{`name="customers"`, `name="days"`, `name="ceiling"`} {
+		if !strings.Contains(page, field) {
+			t.Errorf("the perf form should have %s", field)
+		}
+	}
+	for _, bad := range []url.Values{{"customers": {"-1"}}, {"days": {"ten"}}, {"ceiling": {"6"}}, {"ceiling": {"-1h"}}} {
+		bad.Set("name", "perf-bad")
+		if code := post(t, ts, "/perf", bad); code != http.StatusBadRequest {
+			t.Errorf("%v: status %d, want 400", bad, code)
+		}
+	}
+	post(t, ts, "/perf", url.Values{"name": {"short"}, "scale": {"small"}, "customers": {"100"}, "days": {"10"}, "ceiling": {"1h"}})
+	post(t, ts, "/perf", url.Values{"name": {"full"}, "scale": {"small"}, "customers": {""}, "days": {""}, "ceiling": {""}})
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.targets) == 2 })
+	op.mu.Lock()
+	got := map[string]PerfTargets{op.perfs[0].Env.Name: op.targets[0], op.perfs[1].Env.Name: op.targets[1]}
+	op.mu.Unlock()
+	if want := (PerfTargets{Customers: 100, Days: 10, Ceiling: time.Hour}); got["short"] != want {
+		t.Errorf("short run targets = %+v, want %+v", got["short"], want)
+	}
+	if got["full"] != (PerfTargets{}) {
+		t.Errorf("blank fields should be the full run, got %+v", got["full"])
 	}
 	close(op.release)
 }

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-16
+
+ - Stories 18, 21, 28 and the roadmap epic for 26/27: the scan workflow and concurrency ladder, the journal figures adding up, and the Hetzner list as last listed
+
 ### Fixed
 - Hetzner's rate limit (#28): the page asked for the server list and then
   every environment by name on each poll, five requests every three

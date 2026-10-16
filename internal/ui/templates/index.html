@@ -52,6 +52,21 @@
         </div>
         <small class="has-text-grey">starts billing for up to about six hours: a fresh environment at the scale, customers added flat out to 10,000, days run until the bank is seven years on or six hours have passed, both rates read off the demo, the server removed. The figures are on the <a href="/perf">Performance</a> page.</small>
       </form>
+
+      <form method="post" action="/load" hx-post="/load" hx-target="#envs" hx-swap="outerHTML" hx-on::after-request="if (event.detail.successful) this.reset()" class="mb-5">
+        <label class="label is-small">Load test</label>
+        <div class="field has-addons">
+          <div class="control"><input class="input is-small" type="text" name="name" placeholder="load" pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" required title="lower-case letters, digits and hyphens"></div>
+          <div class="control"><div class="select is-small"><select name="scale">
+            <option value="small">small (cx23)</option>
+            <option value="medium">medium (cx33)</option>
+            <option value="large">large (ccx33, dedicated)</option>
+            <option value="xl">xl (ccx43, dedicated)</option>
+          </select></div></div>
+          <div class="control"><button class="button is-small is-info">Load test</button></div>
+        </div>
+        <small class="has-text-grey">starts billing for up to a few hours: a fresh environment at the scale with 10,000 customers, a loader box beside it on the private network, the customer journey walked up a ladder of concurrent users until a screen&#39;s p95 is over 2s, both boxes removed. The climb is on the <a href="/perf/load">Load tests</a> page.</small>
+      </form>
       {{end}}
       {{if .upUnavailable}}<p class="is-size-7 has-text-grey">Status and Down only: {{.upUnavailable}}.</p>{{end}}
     </div>

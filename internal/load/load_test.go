@@ -215,11 +215,11 @@ func TestClimbStopsAtTheFirstBreach(t *testing.T) {
 // A load test is the ladder climbed with the customer journey walked over
 // HTTP, the customers in sequence through the books; its result crosses
 // from the loader box as JSON and reads back the same.
-func TestRunClimbsTheLadderOverHTTPAndTheResultCrossesAsJSON(t *testing.T) {
+func TestTestClimbsTheLadderOverHTTPAndTheResultCrossesAsJSON(t *testing.T) {
 	bff := &fakeBFF{tokens: map[string]string{}}
 	ts := httptest.NewServer(bff)
 	defer ts.Close()
-	res := Run(context.Background(), Config{Base: ts.URL, Password: "s3cret", Customers: 100, Ladder: []int{1, 2}, Reps: 2, Budget: time.Minute})
+	res := Test(context.Background(), Config{Base: ts.URL, Password: "s3cret", Customers: 100, Ladder: []int{1, 2}, Reps: 2, Budget: time.Minute})
 	if res.Capacity != 2 || res.Breach != "" || len(res.Rungs) != 2 || res.Rungs[1].Journeys != 4 {
 		t.Fatalf("result = %+v", res)
 	}

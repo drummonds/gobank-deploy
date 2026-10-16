@@ -268,17 +268,22 @@ func (r *perfRun) record(ctx context.Context) (*perf.Run, error) {
 	return r.p.Perfs.Get(ctx, id)
 }
 
-// read is the demo as it is now: the status's URL and version, and the
-// console's reading.
+// read is the demo as it is now.
 func (r *perfRun) read(ctx context.Context) (deploy.Status, drills.Reading, error) {
-	st, err := r.p.Ops.Status(ctx, r.env)
+	return readDemo(ctx, r.p.Ops, r.p.Console, r.env)
+}
+
+// readDemo is the demo as it is now: the status's URL and version, and
+// the console's reading.
+func readDemo(ctx context.Context, ops Ops, console PerfConsole, env deploy.Environment) (deploy.Status, drills.Reading, error) {
+	st, err := ops.Status(ctx, env)
 	if err != nil {
 		return st, drills.Reading{}, err
 	}
 	if st.Server == nil || !st.Serving || st.Version == "" {
-		return st, drills.Reading{}, fmt.Errorf("%s is not serving a known version", r.env.Name)
+		return st, drills.Reading{}, fmt.Errorf("%s is not serving a known version", env.Name)
 	}
-	rd, err := r.p.Console.Read(ctx, st.URL)
+	rd, err := console.Read(ctx, st.URL)
 	if err != nil {
 		return st, rd, fmt.Errorf("reading the demo: %w", err)
 	}
@@ -320,10 +325,8 @@ func (r *perfRun) create(ctx context.Context) error {
 }
 
 // add sets the demo flat out with room for every customer, then adds
-// customers a batch at a time until the books hold the target or the
-// ceiling is reached, the last batch cut to size. The rate is the demo's
-// own, batch by batch: customers over the time the demo took to add them,
-// without this program's polling in between.
+// customers until the books hold the target or the ceiling is reached,
+// and records the span and the rate.
 func (r *perfRun) add(ctx context.Context) error {
 	fmt.Fprintln(r.out, "== add")
 	rec, err := r.record(ctx)
@@ -333,32 +336,56 @@ func (r *perfRun) add(ctx context.Context) error {
 	if rec == nil {
 		return errors.New("the run was not recorded at create")
 	}
-	st, rd, err := r.read(ctx)
+	f, err := r.p.fill(ctx, r.env, r.out)
 	if err != nil {
 		return err
 	}
+	rec.AddSpan, rec.Customers, rec.CustomersPerSec = f.took, f.customers, f.rate
+	return r.p.Perfs.Update(ctx, *rec)
+}
+
+// filled is what an add came to: the books before and after, how long it
+// took, and the demo's own rate.
+type filled struct {
+	from, customers int
+	took            time.Duration
+	rate            float64 // customers added a second
+}
+
+// fill stops the demo if it is running, sets it flat out with room for
+// every customer, then adds customers a batch at a time until the books
+// hold the target or the ceiling is reached, the last batch cut to size.
+// The rate is the demo's own, batch by batch: customers over the time the
+// demo took to add them, without this program's polling in between.
+func (p *Perf) fill(ctx context.Context, env deploy.Environment, out io.Writer) (filled, error) {
+	var f filled
+	st, rd, err := readDemo(ctx, p.Ops, p.Console, env)
+	if err != nil {
+		return f, err
+	}
 	if rd.Running {
-		if err := r.p.Console.Stop(ctx, st.URL, st.APIToken); err != nil {
-			return fmt.Errorf("stopping the run: %w", err)
+		if err := p.Console.Stop(ctx, st.URL, st.APIToken); err != nil {
+			return f, fmt.Errorf("stopping the run: %w", err)
 		}
 	}
-	if err := r.p.Console.SetSettings(ctx, st.URL, st.APIToken, 0, r.p.maxCustomers()); err != nil {
-		return fmt.Errorf("setting flat out: %w", err)
+	if err := p.Console.SetSettings(ctx, st.URL, st.APIToken, 0, p.maxCustomers()); err != nil {
+		return f, fmt.Errorf("setting flat out: %w", err)
 	}
-	target, ceiling := r.p.customers(), r.p.ceiling()
-	start, from := r.p.now(), rd.Position.Customers
+	target, ceiling := p.customers(), p.ceiling()
+	start := p.now()
+	f.from = rd.Position.Customers
 	var adding time.Duration
-	for rd.Position.Customers < target && r.p.now().Sub(start) < ceiling {
-		n := min(r.p.batch(), target-rd.Position.Customers)
-		if err := r.p.Console.AddCustomers(ctx, st.URL, st.APIToken, n); err != nil {
-			return fmt.Errorf("adding customers: %w", err)
+	for rd.Position.Customers < target && p.now().Sub(start) < ceiling {
+		n := min(p.batch(), target-rd.Position.Customers)
+		if err := p.Console.AddCustomers(ctx, st.URL, st.APIToken, n); err != nil {
+			return f, fmt.Errorf("adding customers: %w", err)
 		}
 		for {
-			if err := r.p.sleep(ctx, or(r.p.Poll, 10*time.Second)); err != nil {
-				return err
+			if err := p.sleep(ctx, or(p.Poll, 10*time.Second)); err != nil {
+				return f, err
 			}
-			if _, rd, err = r.read(ctx); err != nil {
-				return err
+			if _, rd, err = readDemo(ctx, p.Ops, p.Console, env); err != nil {
+				return f, err
 			}
 			if !rd.Adding {
 				break
@@ -368,17 +395,16 @@ func (r *perfRun) add(ctx context.Context) error {
 			adding += time.Duration(float64(n) / rd.CustomersPerSec * float64(time.Second))
 		}
 	}
-	took := r.p.now().Sub(start)
-	rec.AddSpan = took
-	rec.Customers = rd.Position.Customers
-	added := rec.Customers - from
+	f.took = p.now().Sub(start)
+	f.customers = rd.Position.Customers
+	added := f.customers - f.from
 	if adding > 0 {
-		rec.CustomersPerSec = float64(added) / adding.Seconds()
-	} else if took > 0 {
-		rec.CustomersPerSec = float64(added) / took.Seconds()
+		f.rate = float64(added) / adding.Seconds()
+	} else if f.took > 0 {
+		f.rate = float64(added) / f.took.Seconds()
 	}
-	fmt.Fprintf(r.out, "%d customers added in %s: %.1f customers/s; %d on the books%s\n", added, took, rec.CustomersPerSec, rec.Customers, stoppedBy(rec.Customers < target, target, "customers"))
-	return r.p.Perfs.Update(ctx, *rec)
+	fmt.Fprintf(out, "%d customers added in %s: %.1f customers/s; %d on the books%s\n", added, f.took, f.rate, f.customers, stoppedBy(f.customers < target, target, "customers"))
+	return f, nil
 }
 
 // days runs the simulation flat out until the bank's day is the years on

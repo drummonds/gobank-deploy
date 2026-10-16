@@ -18,6 +18,7 @@ import (
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/load"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/scenario"
 )
@@ -45,7 +46,28 @@ type fakeOperator struct {
 	steps     map[string][]wf.StepResult
 	perfs     []demoCall
 	perfRuns  []perf.Run
+	loads     []demoCall
+	loadRuns  []load.Run
 	scenarios []scenario.Run
+}
+
+func (f *fakeOperator) Load(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	f.mu.Lock()
+	f.loads = append(f.loads, demoCall{env, scale})
+	f.mu.Unlock()
+	fmt.Fprintf(out, "== create %s at %s\n", env.Name, scale)
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (f *fakeOperator) Loads(context.Context, int) ([]load.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loadRuns, nil
 }
 
 func (f *fakeOperator) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -1305,5 +1327,94 @@ func TestRoutesPageChartsARoutesP95ByVersionPerScale(t *testing.T) {
 	_, body = get(t, ts, "/perf")
 	if !strings.Contains(body, `href="/perf/routes"`) {
 		t.Error("the performance page links the routes over versions")
+	}
+}
+
+// A load test is started from its own form: a new environment at a
+// scale, loaded from a loader beside it and both removed by the load
+// workflow, shown as a job while it runs.
+func TestLoadTestStartsTheWorkflowAsAJob(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, page := get(t, ts, "/")
+	if !strings.Contains(page, `action="/load"`) {
+		t.Errorf("page should offer a load test:\n%s", page)
+	}
+	if code := post(t, ts, "/load", url.Values{"name": {"prod"}, "scale": {"large"}}); code != http.StatusConflict {
+		t.Errorf("an existing environment: status %d, want 409", code)
+	}
+	if code := post(t, ts, "/load", url.Values{"name": {"load1"}, "scale": {"large"}}); code != http.StatusSeeOther {
+		t.Errorf("status %d, want 303", code)
+	}
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.loads) == 1 })
+	if op.loads[0].Env.Name != "load1" || op.loads[0].Scale != "large" {
+		t.Errorf("load test = %+v", op.loads[0])
+	}
+	_, body := get(t, ts, "/")
+	if !strings.Contains(body, "Working: load") {
+		t.Errorf("page should show the test with its log:\n%s", body)
+	}
+	close(op.release)
+}
+
+func loadRuns() []load.Run {
+	t0 := time.Date(2026, 10, 16, 9, 0, 0, 0, time.Local)
+	rung := func(users int, login time.Duration) load.Rung {
+		return load.Rung{Users: users, Journeys: users * 10, PerSecond: 12.5,
+			Screens: []load.Screen{{Name: "login", P95: login}, {Name: "accounts", P95: 300 * time.Millisecond}, {Name: "account", P95: 400 * time.Millisecond}},
+			Journey: load.Screen{Name: "journey", P95: login + 700*time.Millisecond}}
+	}
+	return []load.Run{
+		{RunID: "load-3", Environment: "load3", Scale: "large", ServerType: "ccx33", MemoryGB: 32, Version: "v0.57.0", CreatedAt: t0.Add(2 * time.Hour), Customers: 10_000,
+			Result: load.Result{Budget: 2 * time.Second, Capacity: 100, Breach: "200 users: login p95 2.6s over 2s", Rungs: []load.Rung{rung(100, 1800*time.Millisecond), rung(200, 2600*time.Millisecond)}}},
+		{RunID: "load-2", Environment: "load2", Scale: "small", ServerType: "cx23", MemoryGB: 4, Version: "v0.57.0", CreatedAt: t0.Add(time.Hour), Customers: 10_000,
+			Result: load.Result{Budget: 2 * time.Second, Capacity: 20, Breach: "50 users: 3 journeys failed (first: login: 502 Bad Gateway)"}},
+		{RunID: "load-1", Environment: "load1", Scale: "small", ServerType: "cx23", MemoryGB: 4, Version: "v0.56.0", CreatedAt: t0, Customers: 10_000,
+			Result: load.Result{Budget: 2 * time.Second, Capacity: 10, Breach: "20 users: login p95 2.2s over 2s"}},
+	}
+}
+
+// The load tests page lists every load test with its capacity and why the
+// climb stopped, and charts the capacity against gobank's version, a line
+// per scale, with the same as a table.
+func TestLoadPageListsTheTestsAndChartsCapacityByVersion(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/perf/load")
+	if !strings.Contains(body, "No load tests yet") {
+		t.Errorf("empty page:\n%s", body)
+	}
+	op.mu.Lock()
+	op.loadRuns = loadRuns()
+	op.mu.Unlock()
+	code, body := get(t, ts, "/perf/load")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{`href="/workflows/load-3"`, "load3", "ccx33, 32 GB", "v0.57.0", "10,000", "200 users: login p95 2.6s over 2s",
+		"<svg", "small (cx23, 4 GB)", "large (ccx33, 32 GB)", "<tr><td>v0.56.0</td><td>10</td><td></td></tr>", "<tr><td>v0.57.0</td><td>20</td><td>100</td></tr>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("load page missing %q:\n%s", want, body)
+		}
+	}
+	_, body = get(t, ts, "/perf")
+	if !strings.Contains(body, `href="/perf/load"`) {
+		t.Error("the performance page links the load tests")
+	}
+}
+
+// A load test's run page shows the climb: each rung's users, journeys,
+// failures, every screen's p95 and the journey's, with the capacity and
+// why it stopped.
+func TestRunPageShowsALoadTestsRungs(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.loadRuns = loadRuns()
+	op.runs = []wf.RunRecord{{ID: "load-3", WorkflowType: "load", Key: "load3 large 2026-10-16", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/workflows/load-3")
+	for _, want := range []string{"Capacity <strong>100 users</strong>", "200 users: login p95 2.6s over 2s", "<th>login p95</th><th>accounts p95</th><th>account p95</th>",
+		"<td>100</td><td>1,000</td><td>0</td><td>1.8s</td><td>300ms</td><td>400ms</td><td>2.5s</td><td>12.5</td>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page missing %q:\n%s", want, body)
+		}
 	}
 }

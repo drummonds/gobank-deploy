@@ -275,8 +275,8 @@ type Config struct {
 // Ladder is the default ladder of concurrent users.
 var Ladder = []int{1, 2, 5, 10, 20, 50, 100, 200, 500}
 
-// Run climbs the ladder with the customer journey.
-func Run(ctx context.Context, c Config) Result {
+// Test climbs the ladder with the customer journey: a load test.
+func Test(ctx context.Context, c Config) Result {
 	w := &Walker{Base: c.Base, Password: c.Password}
 	next := Sequence(c.Customers)
 	ladder := c.Ladder

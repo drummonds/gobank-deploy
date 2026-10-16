@@ -110,6 +110,12 @@ func usage() {
                                                        measured document written to PATH (default
                                                        <-src>/api/measured.json) for gobank's API pages,
                                                        for you to commit and release
+  gobank-deploy load <env> [-scale small] [-customers 10000] [-ladder 1,2,5,...] [-reps 10] [-budget 2s]
+                                                       load test on a fresh environment <env>: create it,
+                                                       fill its books, make <env>-loader beside it on the
+                                                       private network, walk the customer journey up the
+                                                       ladder from the loader until a screen's p95 is over
+                                                       -budget, remove both; the climb is kept in FILE
   gobank-deploy journey -base URL [-customers 1000] [-ladder 1,2,5,...] [-reps 10] [-budget 2s]
                                                        load test from this host: the customer journey (login,
                                                        accounts, one account) walked by each rung's users
@@ -179,7 +185,7 @@ func main() {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		res := load.Run(ctx, load.Config{Base: *base, Password: os.Getenv("GOBANK_APP_PASSWORD"), Customers: *customers,
+		res := load.Test(ctx, load.Config{Base: *base, Password: os.Getenv("GOBANK_APP_PASSWORD"), Customers: *customers,
 			Ladder: parseLadder(*ladder), Reps: *reps, Budget: *budget, Progress: os.Stderr})
 		if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -245,16 +251,18 @@ func main() {
 			}
 		}
 		factory := ui.DeployerFactory(newDeployer)
-		database, runs, drillStore, perfStore, scenarioStore, err := openDatabase(ctx, *dbFile)
+		st, err := openDatabase(ctx, *dbFile)
 		if err != nil {
 			log.Fatal(err)
 		}
+		database, runs := st.db, st.runs
 		defer database.Close()
 		demo := &flows.Demo{Ops: factory, Store: runs}
-		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: drillStore}
-		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Store: runs, Perfs: perfStore}
-		scenarioFlow := &flows.Scenario{Ops: factory, Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore}
-		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow, Scenario_: scenarioFlow}, envs)
+		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: st.drills}
+		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Store: runs, Perfs: st.perfs}
+		loadFlow := &flows.Load{Ops: factory, Console: &remote.Console{}, Store: runs, Loads: st.loads}
+		scenarioFlow := &flows.Scenario{Ops: factory, Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: st.scenarios}
+		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow, Load_: loadFlow, Scenario_: scenarioFlow}, envs)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -314,14 +322,12 @@ func main() {
 		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
 		doc := fs.String("doc", filepath.Join(*src, "benchmark.md"), "gobank's performance doc to put the rows into; \"\" to only print them")
 		_ = fs.Parse(args)
-		var database *sql.DB
-		var runs *sqlstore.Store
-		var perfStore *perf.Store
-		database, runs, _, perfStore, _, err = openDatabase(ctx, *dbFile)
-		if err != nil {
+		var st *stores
+		if st, err = openDatabase(ctx, *dbFile); err != nil {
 			break
 		}
-		defer database.Close()
+		defer st.db.Close()
+		runs, perfStore := st.runs, st.perfs
 		var list []string
 		for s := range strings.SplitSeq(*scales, ",") {
 			if s = strings.TrimSpace(s); s != "" {
@@ -346,6 +352,23 @@ func main() {
 				}
 			}
 		}
+	case "load":
+		fs := flag.NewFlagSet("load", flag.ExitOnError)
+		scale := fs.String("scale", "small", "scale of the target (small|medium|large|xl or any hcloud server type)")
+		customers := fs.Int("customers", 10_000, "customers on the target's books, walked in sequence")
+		ladder := fs.String("ladder", "", "concurrent users at each rung (default 1,2,5,10,20,50,100,200,500)")
+		reps := fs.Int("reps", 10, "journeys each user walks at a rung")
+		budget := fs.Duration("budget", 2*time.Second, "the p95 a screen may reach and the rung still hold")
+		dbFile := fs.String("db", filepath.Join(*buildDir, "gobank-deploy.db"), "pglike database the runs are recorded in")
+		_ = fs.Parse(args)
+		var st *stores
+		if st, err = openDatabase(ctx, *dbFile); err != nil {
+			break
+		}
+		defer st.db.Close()
+		flow := &flows.Load{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: st.runs, Loads: st.loads,
+			Customers: *customers, Ladder: parseLadder(*ladder), Reps: *reps, Budget: *budget}
+		err = flow.Run(ctx, env, *scale, os.Stdout)
 	case "scenario":
 		fs := flag.NewFlagSet("scenario", flag.ExitOnError)
 		scale := fs.String("scale", "large", "scale of the one server (small|medium|large|xl or any hcloud server type)")
@@ -365,14 +388,12 @@ func main() {
 		}
 		cfg := scenario.Config{Name: name, Customers: *customers, Years: *years, DayLength: *dayLength, Search: *search}
 		env = deploy.Environment{Name: name + "-" + *scale}
-		var database *sql.DB
-		var runs *sqlstore.Store
-		var scenarioStore *scenario.Store
-		database, runs, _, _, scenarioStore, err = openDatabase(ctx, *dbFile)
-		if err != nil {
+		var st *stores
+		if st, err = openDatabase(ctx, *dbFile); err != nil {
 			break
 		}
-		defer database.Close()
+		defer st.db.Close()
+		runs, scenarioStore := st.runs, st.scenarios
 		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore, Ladder: parseLadder(*ladder)}
 		var rec *scenario.Run
 		rec, err = flow.Run(ctx, env, *scale, cfg, *keep, os.Stdout)
@@ -388,14 +409,12 @@ func main() {
 		journalDir := fs.String("journal", "journal", "folder the run's page and index line are written into; \"\" to only print the page")
 		doc := fs.String("doc", filepath.Join(*src, "api", "measured.json"), "gobank's measured document, for its API pages; \"\" to not write it")
 		_ = fs.Parse(args)
-		var database *sql.DB
-		var runs *sqlstore.Store
-		var scenarioStore *scenario.Store
-		database, runs, _, _, scenarioStore, err = openDatabase(ctx, *dbFile)
-		if err != nil {
+		var st *stores
+		if st, err = openDatabase(ctx, *dbFile); err != nil {
 			break
 		}
-		defer database.Close()
+		defer st.db.Close()
+		runs, scenarioStore := st.runs, st.scenarios
 		flow := &flows.Scenario{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: scenarioStore, Ladder: parseLadder(*ladder), Samples: *samples}
 		var rec *scenario.Run
 		rec, err = flow.Scan(ctx, env, *search, os.Stdout)
@@ -499,35 +518,45 @@ func writeJournal(dir string, r scenario.Run) (string, error) {
 // too) and brings every component's schema up to date: gobank-workflow's
 // run records, this program's drills, its performance runs and its
 // scenario runs, each versioned in its own migrations table.
-func openDatabase(ctx context.Context, file string) (*sql.DB, *sqlstore.Store, *drills.Store, *perf.Store, *scenario.Store, error) {
+// stores are this program's records, all in one pglike database.
+type stores struct {
+	db        *sql.DB
+	runs      *sqlstore.Store
+	drills    *drills.Store
+	perfs     *perf.Store
+	scenarios *scenario.Store
+	loads     *load.Store
+}
+
+func openDatabase(ctx context.Context, file string) (*stores, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, err
 	}
 	d, err := sql.Open("pglike", file)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("open %s: %w", file, err)
+		return nil, fmt.Errorf("open %s: %w", file, err)
 	}
-	runs, err := sqlstore.New(d)
-	if err != nil {
+	st := &stores{db: d}
+	fail := func(err error) (*stores, error) {
 		d.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
-	ds, err := drills.New(ctx, d)
-	if err != nil {
-		d.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	if st.runs, err = sqlstore.New(d); err != nil {
+		return fail(err)
 	}
-	ps, err := perf.New(ctx, d)
-	if err != nil {
-		d.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	if st.drills, err = drills.New(ctx, d); err != nil {
+		return fail(err)
 	}
-	ss, err := scenario.New(ctx, d)
-	if err != nil {
-		d.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("%s: %w", file, err)
+	if st.perfs, err = perf.New(ctx, d); err != nil {
+		return fail(err)
 	}
-	return d, runs, ds, ps, ss, nil
+	if st.scenarios, err = scenario.New(ctx, d); err != nil {
+		return fail(err)
+	}
+	if st.loads, err = load.NewStore(ctx, d); err != nil {
+		return fail(err)
+	}
+	return st, nil
 }
 
 // dnsFor is the Route 53 provider for domain, or nil (with a notice) when

@@ -26,6 +26,17 @@
       <h2 class="title is-5">Routes</h2>
       <p class="is-size-7">{{.Scanned}} routes scanned, {{.NotScanned}} not, on {{.Environment}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}} · <a href="/perf/scans/{{.RunID}}">every route, worst first</a> · <a href="/perf/scans">the scans over time</a></p>
       {{end}}
+      {{with .load}}
+      <h2 class="title is-5">Climb</h2>
+      <p class="is-size-7">{{.Environment}} · {{.Scale}} ({{.Box}}) · gobank {{.Version}} · {{.Customers}} customers · budget p95 {{.Budget}} a screen · <a href="/perf/load">the load tests over time</a></p>
+      <p class="mb-2">Capacity <strong>{{.Capacity}} users</strong>{{if .Breach}}; stopped at {{.Breach}}{{else if .Rungs}}; the top rung held{{end}}.</p>
+      {{if .Rungs}}
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Users</th><th>Journeys</th><th>Failed</th>{{range .Screens}}<th>{{.}} p95</th>{{end}}<th>Journey p95</th><th>Journeys/s</th><th>Breach</th></tr></thead>
+        <tbody>{{range .Rungs}}<tr><td>{{.Users}}</td><td>{{.Journeys}}</td><td>{{.Failed}}</td>{{range .P95}}<td>{{.}}</td>{{end}}<td>{{.Journey}}</td><td>{{.PerSecond}}</td><td class="has-text-danger">{{.Breach}}</td></tr>{{end}}</tbody>
+      </table>
+      {{end}}
+      {{end}}
       {{with .perf}}
       <h2 class="title is-5">Figures</h2>
       <p class="is-size-7">{{.Environment}} · {{.Scale}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}}</p>

@@ -26,6 +26,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/load"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/scenario"
 )
@@ -71,6 +72,11 @@ type Operator interface {
 	Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
 	// Perfs lists recent performance runs, most recent first.
 	Perfs(ctx context.Context, limit int) ([]perf.Run, error)
+	// Load runs gobank's load test: a new environment at scale and a
+	// loader beside it, the journey walked up the ladder, both removed.
+	Load(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
+	// Loads lists recent load tests, most recent first.
+	Loads(ctx context.Context, limit int) ([]load.Run, error)
 	// Scenarios lists recent scenario runs, most recent first: the journal.
 	Scenarios(ctx context.Context, limit int) ([]scenario.Run, error)
 	// Scenario is one scenario run by its workflow run's id; nil when there is none.
@@ -83,6 +89,7 @@ type Ops struct {
 	Flows     *flows.Demo
 	Drill_    *flows.Drill
 	Perf_     *flows.Perf
+	Load_     *flows.Load
 	Scenario_ *flows.Scenario // nil where no scenario can be run; the journal is then empty
 }
 
@@ -106,6 +113,17 @@ func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, out
 
 func (o Ops) Perfs(ctx context.Context, limit int) ([]perf.Run, error) {
 	return o.Perf_.Perfs.List(ctx, limit)
+}
+
+func (o Ops) Load(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
+	return o.Load_.Run(ctx, env, scale, out)
+}
+
+func (o Ops) Loads(ctx context.Context, limit int) ([]load.Run, error) {
+	if o.Load_ == nil || o.Load_.Loads == nil {
+		return nil, nil
+	}
+	return o.Load_.Loads.List(ctx, limit)
 }
 
 func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -164,6 +182,15 @@ func (f DeployerFactory) Up(ctx context.Context, o deploy.UpOptions, out io.Writ
 
 func (f DeployerFactory) Down(ctx context.Context, env deploy.Environment, out io.Writer) error {
 	return f(out).Down(ctx, env)
+}
+
+func (f DeployerFactory) Loader(ctx context.Context, env deploy.Environment, expires time.Time, out io.Writer) error {
+	_, err := f(out).Loader(ctx, env, expires)
+	return err
+}
+
+func (f DeployerFactory) Journey(ctx context.Context, loader deploy.Environment, target *deploy.Server, o deploy.JourneyOptions, out io.Writer) (load.Result, error) {
+	return f(out).Journey(ctx, loader, target, o)
 }
 
 const (
@@ -432,7 +459,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/routes.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/routes.html", "templates/load.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +480,8 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("POST /perf", s.perf)
 	s.mux.HandleFunc("GET /perf", s.perfs)
 	s.mux.HandleFunc("GET /perf/routes", s.perfRoutes)
+	s.mux.HandleFunc("POST /load", s.loadTest)
+	s.mux.HandleFunc("GET /perf/load", s.loadTests)
 	s.mux.HandleFunc("GET /perf/scans", s.scans)
 	s.mux.HandleFunc("GET /perf/scans/{id}", s.scan)
 	s.mux.HandleFunc("GET /workflows", s.workflows)
@@ -1049,6 +1078,15 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	if rec.WorkflowType == flows.WorkflowScan {
 		if run, err := s.op.Scenario(r.Context(), rec.ID); err == nil && run != nil {
 			data["scan"] = viewScan(*run)
+		}
+	}
+	if rec.WorkflowType == flows.WorkflowLoad {
+		if list, err := s.op.Loads(r.Context(), 200); err == nil {
+			for _, l := range list {
+				if l.RunID == rec.ID {
+					data["load"] = viewLoad(l)
+				}
+			}
 		}
 	}
 	if rec.WorkflowType == flows.WorkflowPerf {

@@ -49,7 +49,7 @@ func Trend(runs []Run, pattern string) (versions []string, series []Series) {
 			versions = append(versions, k.version)
 		}
 	}
-	slices.SortFunc(versions, compareVersions)
+	slices.SortFunc(versions, CompareVersions)
 	var scales []string
 	for s := range memory {
 		scales = append(scales, s)
@@ -94,9 +94,9 @@ func find(routes []Route, pattern string) (Route, bool) {
 	return Route{}, false
 }
 
-// compareVersions orders gobank's tags by number, v0.9.0 before v0.10.0;
+// CompareVersions orders gobank's tags by number, v0.9.0 before v0.10.0;
 // a tag that is not vX.Y.Z sorts as text after the numbered ones.
-func compareVersions(a, b string) int {
+func CompareVersions(a, b string) int {
 	na, oka := numbers(a)
 	nb, okb := numbers(b)
 	switch {

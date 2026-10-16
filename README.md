@@ -22,7 +22,8 @@ tp secrets gobank-deploy down preprod                    # asks; -y to skip
 ```
 
 A web page with the same controls, one row per environment, polling
-every few seconds while a job runs:
+every few seconds while a job runs (Hetzner itself is asked at most once
+every 30 seconds, and at once after anything this program changes):
 
 ```sh
 tp secrets task ui                       # http://localhost:1348/

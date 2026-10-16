@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Hetzner's rate limit (#28): the page asked for the server list and then
+  every environment by name on each poll, five requests every three
+  seconds while a job ran, past the token's 3,600 an hour. The cloud is
+  now the project as last listed: one list answers the page and the
+  flows for 30 seconds, a server by name is read off it, and a create,
+  delete or relabel by this program forgets the list so it shows at once.
+
 ## [0.19.1] - 2026-10-16
 
  - A failed perf or scenario run removes its box instead of leaving it billing (#29)

@@ -153,7 +153,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "HCLOUD_TOKEN not set — run via: tp secrets gobank-deploy", strings.Join(os.Args[1:], " "))
 		os.Exit(1)
 	}
-	cloud := hetzner.New(token)
+	// The project as last listed: one request answers the page and the
+	// flows for 30s, within Hetzner's 3,600 an hour (#28).
+	cloud := deploy.NewCachedCloud(hetzner.New(token), 30*time.Second)
 	dns := dnsFor(context.Background(), *domain)
 	var repo deploy.Repo
 	if *repoURL != "" {

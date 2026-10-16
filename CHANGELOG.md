@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- A failed perf or scenario run no longer leaves its box billing (#29):
+  create is undone by remove when a later stage fails (gobank-workflow's
+  `Stage.Undo`), so the box is deleted, the run's error says so, and the
+  next attempt the same day starts from create instead of resuming
+  against a server that is gone. With `-keep` a scenario's box is left,
+  failed or not. The perf box also carries an expiry of twice the
+  ceiling and an hour, so a run that hangs or an engine that dies is
+  reaped by the page's tick like a temporary environment.
+
 ## [0.19.0] - 2026-10-14
 
  - Performance run to targets: 10,000 customers, then seven years or six hours (#24)

@@ -3,6 +3,7 @@ package flows
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -79,6 +80,7 @@ type perfConsole struct {
 
 	demos        map[string]*demoState
 	settings     []string
+	failAt       int // Read fails once the books hold this many customers; 0 never
 	starts, stop int
 	addCalls     []int
 }
@@ -99,6 +101,9 @@ func (c *perfConsole) Read(_ context.Context, url string) (drills.Reading, error
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := c.demo(url)
+	if c.failAt > 0 && d.customers >= c.failAt {
+		return drills.Reading{}, errors.New("the demo stopped answering")
+	}
 	now := c.now()
 	if d.running {
 		for !d.runFrom.Add(c.dayTime).After(now) {
@@ -376,5 +381,45 @@ func TestPerfCeilingBoundsTheAdd(t *testing.T) {
 	list, _ := h.perfs.List(context.Background(), 1)
 	if len(list) != 1 || list[0].Customers != 2000 || list[0].AddSpan != 2*time.Minute {
 		t.Errorf("record = %+v; want 2000 customers in 2m", list)
+	}
+}
+
+// A run that fails after its box was created removes the box: create is
+// undone, so nothing bills while the failed run sits, and the next
+// attempt starts from create again rather than resuming against a server
+// that is gone. The box carries an expiry of twice the ceiling and an
+// hour, so a run that hangs is reaped by the page's tick.
+func TestPerfFailureRemovesTheBoxAndTheNextAttemptStartsOver(t *testing.T) {
+	h := newPerfHarness(t)
+	h.con.failAt = 1000 // the first batch lands, then the demo stops answering
+	err := h.run("small")
+	if err == nil || !strings.Contains(err.Error(), "add: ") || !strings.Contains(err.Error(), "undone: create") {
+		t.Fatalf("err = %v; want add failed and create undone", err)
+	}
+	if h.ops.downs != 1 || len(h.ops.servers) != 0 {
+		t.Errorf("downs %d servers %d; want the box removed on failure", h.ops.downs, len(h.ops.servers))
+	}
+	if want := start.Add(2*6*time.Hour + time.Hour); len(h.ops.ups) != 1 || !h.ops.ups[0].Expires.Equal(want) {
+		t.Errorf("ups = %+v; want one create with expiry %s", h.ops.ups, want)
+	}
+	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	if len(runs) != 1 || runs[0].Status != wf.StatusFailed {
+		t.Fatalf("runs = %+v; want one failed run", runs)
+	}
+	steps, _ := h.runs.ListSteps(context.Background(), runs[0].ID)
+	if len(steps) != 1 || steps[0].StepName != "add" || steps[0].Status != wf.StatusFailed {
+		t.Errorf("steps = %+v; want only the failed add, create gone with its box", steps)
+	}
+
+	h.con.failAt = 0
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.ops.ups) != 2 || !h.ops.ups[1].Create || h.ops.downs != 2 {
+		t.Errorf("ups %d downs %d; want a second create and the remove at the end", len(h.ops.ups), h.ops.downs)
+	}
+	runs, _ = h.runs.ListRuns(context.Background(), 1)
+	if runs[0].Status != wf.StatusCompleted {
+		t.Errorf("run = %+v; want the same instance completed", runs[0])
 	}
 }

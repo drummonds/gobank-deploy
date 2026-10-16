@@ -263,3 +263,28 @@ func TestScenarioFailsWhenTheDemoDoesNotAnswer(t *testing.T) {
 		t.Fatalf("err = %v, want not serving", err)
 	}
 }
+
+// A scenario that fails after its box was created removes the box, as
+// the perf run does; with keep the box is left, failed or not, since
+// keep is for looking at it.
+func TestScenarioFailureRemovesTheBoxUnlessKept(t *testing.T) {
+	h := newScenarioHarness(t)
+	h.con.failAt = 1000
+	_, err := h.run(sevenYears, false)
+	if err == nil || !strings.Contains(err.Error(), "undone: create") {
+		t.Fatalf("err = %v; want create undone", err)
+	}
+	if h.ops.downs != 1 || len(h.ops.servers) != 0 {
+		t.Errorf("downs %d servers %d; want the box removed on failure", h.ops.downs, len(h.ops.servers))
+	}
+
+	kept := newScenarioHarness(t)
+	kept.con.failAt = 1000
+	_, err = kept.run(sevenYears, true)
+	if err == nil || strings.Contains(err.Error(), "undone") {
+		t.Fatalf("err = %v; want the failure with nothing undone", err)
+	}
+	if kept.ops.downs != 0 || len(kept.ops.servers) != 1 {
+		t.Errorf("downs %d servers %d; want the box kept", kept.ops.downs, len(kept.ops.servers))
+	}
+}

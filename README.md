@@ -140,8 +140,9 @@ default, one server each, named `<env>-<scale>`, the rows written into
 gobank's `benchmark.md` in the `-src` checkout — `-doc` to say where, or
 `""` to only print them — for you to commit and release) makes gobank's
 [performance run](https://gobank.docs.bytestone.uk/benchmark.html) as a
-workflow: `create` (up -create at the scale; a server that exists is kept,
-so a failed run resumes on the same box), `add` (the demo set flat out with
+workflow: `create` (up -create at the scale with an expiry of twice the
+ceiling and an hour, so a run that hangs is reaped by the page's tick; a
+server that exists is kept), `add` (the demo set flat out with
 room for a million customers, then batches of 1,000 customers until the
 books hold 10,000, the rate taken from the demo batch by batch so this
 program's polling is not in it), `days` (Run until the bank's day is seven
@@ -168,7 +169,10 @@ account days per 12h and the last day), `wallclock` (the day length set to
 name posted in the form, never in a URL, as gobank's search takes it — and
 the first customer it lists, fetched from outside as the operator at
 concurrency 1 and 4, twenty times each: p50 and p95; then Stop), `remove`
-(down, unless `-keep`). The run is kept in the `-db` database and written
+(down, unless `-keep`). A perf or scenario run that fails after create
+removes its box, since a box bills while a failed run sits: create is
+undone, and the next attempt the same day starts from create rather than
+resuming; with `-keep` the box is left, failed or not. The run is kept in the `-db` database and written
 as a page of the **journal**, the notebook in this repository's `journal/`
 folder: `journal/<date>-<scenario>-<scale>.md` with the configuration,
 steps and probes tables and an empty Notes section for your hand, and its

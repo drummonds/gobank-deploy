@@ -30,7 +30,7 @@ var ScenarioDefinition = wf.Definition{
 	Description: "A scenario: a named configuration driven through timed steps on a fresh environment — the customers added flat out, years run flat out, the day length set to wall clock, the staff pages probed from outside — each step recorded with its figures as a page of the journal. The first scenario, seven-years, is the instrument for gobank milestone 1.",
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
-		{Name: "create", Description: "up -create at the scale (skipped when the server exists); record where the run is and what was asked", Source: scenarioSrc},
+		{Name: "create", Description: "up -create at the scale (skipped when the server exists); record where the run is and what was asked. Without --keep, undone by remove when a later stage fails, so the next attempt starts here", Source: scenarioSrc},
 		{Name: "add", Description: "flat out with room for the customers asked for; add them in batches at the rate the demo reports", Source: scenarioSrc},
 		{Name: "years", Description: "Run flat out until the bank's day is the years on from where it started; days run, account days per 12h and the last day", Source: scenarioSrc},
 		{Name: "wallclock", Description: "set the day length to the wall-clock value and wait for the bank to follow the clock; the last day's pass", Source: scenarioSrc},
@@ -122,6 +122,10 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 	}
 	key := fmt.Sprintf("%s %s %s", env.Name, scale, s.now().Format("2006-01-02"))
 	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out}
+	remove := func(ctx context.Context) error {
+		fmt.Fprintln(out, "== remove")
+		return s.Ops.Down(ctx, env, out)
+	}
 	stages := []wf.Stage{
 		{Name: "create", Run: run.create},
 		{Name: "add", Run: run.add},
@@ -129,11 +133,13 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 		{Name: "wallclock", Run: run.wallclock},
 		{Name: "probe", Run: run.probe},
 	}
+	// Without keep the box is removed at the end, and on a failure too:
+	// create is undone by the same remove, so nothing bills while the
+	// failed run sits and the next attempt starts from create. With keep
+	// the box is for looking at, failed or not.
 	if !keep {
-		stages = append(stages, wf.Stage{Name: "remove", Run: func(ctx context.Context) error {
-			fmt.Fprintln(out, "== remove")
-			return s.Ops.Down(ctx, env, out)
-		}})
+		stages[0].Undo = remove
+		stages = append(stages, wf.Stage{Name: "remove", Run: remove})
 	}
 	if _, err := wf.NewRunner(s.Store, nil).RunPipeline(ctx, WorkflowScenario, key, wf.BusinessDateFrom(s.now()), stages); err != nil {
 		return nil, err

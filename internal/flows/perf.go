@@ -32,7 +32,7 @@ var PerfDefinition = wf.Definition{
 	Description: "gobank's performance run: an environment created at a scale, the demo set flat out, customers added until the books hold the target, days run until the bank is the years on or the ceiling is reached, the two rates — customers added per second and account days per 12h — read off the demo's about.json with what they were made of and how long each stage took, the server removed. The figures go in gobank's benchmark.md.",
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
-		{Name: "create", Description: "up -create at the scale (skipped when the server exists); record where the run is: server type, RAM, gobank version", Source: perfSrc},
+		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
 		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
 		{Name: "days", Description: "Run until the bank's day is the years on (7) or the ceiling (6h) is reached, then Stop; read account days per 12h and the last day it is made of", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
@@ -89,6 +89,13 @@ func (p *Perf) ceiling() time.Duration {
 	return or(p.Ceiling, 6*time.Hour)
 }
 
+// expiry is how long the box lives from create before the page's tick
+// reaps it: both stages at the ceiling, and an hour for create, remove
+// and slack. A run that hangs or an engine that dies still stops billing.
+func (p *Perf) expiry() time.Duration {
+	return 2*p.ceiling() + time.Hour
+}
+
 func (p *Perf) now() time.Time {
 	if p.Now != nil {
 		return p.Now()
@@ -135,14 +142,18 @@ func (p *Perf) Run(ctx context.Context, env deploy.Environment, scale string, ou
 // run started, however many hours it then takes.
 func (p *Perf) run(ctx context.Context, env deploy.Environment, scale, key string, out io.Writer) error {
 	run := &perfRun{p: p, env: env, scale: scale, key: key, out: out}
+	remove := func(ctx context.Context) error {
+		fmt.Fprintln(out, "== remove")
+		return p.Ops.Down(ctx, env, out)
+	}
+	// A box bills while a failed run sits, so create is undone by the
+	// same remove: a failure deletes the box and the next attempt starts
+	// from create.
 	stages := []wf.Stage{
-		{Name: "create", Run: run.create},
+		{Name: "create", Run: run.create, Undo: remove},
 		{Name: "add", Run: run.add},
 		{Name: "days", Run: run.days},
-		{Name: "remove", Run: func(ctx context.Context) error {
-			fmt.Fprintln(out, "== remove")
-			return p.Ops.Down(ctx, env, out)
-		}},
+		{Name: "remove", Run: remove},
 	}
 	rec, err := wf.NewRunner(p.Store, nil).RunPipeline(ctx, WorkflowPerf, key, wf.BusinessDateFrom(p.now()), stages)
 	if err != nil {
@@ -285,7 +296,7 @@ func (r *perfRun) create(ctx context.Context) error {
 	}
 	if st.Server != nil {
 		fmt.Fprintf(r.out, "server %s exists, keeping it\n", st.Server.Name)
-	} else if err := r.p.Ops.Up(ctx, deploy.UpOptions{Env: r.env, Scale: r.scale, Create: true}, r.out); err != nil {
+	} else if err := r.p.Ops.Up(ctx, deploy.UpOptions{Env: r.env, Scale: r.scale, Create: true, Expires: r.p.now().Add(r.p.expiry())}, r.out); err != nil {
 		return err
 	}
 	st, rd, err := r.read(ctx)

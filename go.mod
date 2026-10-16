@@ -6,7 +6,7 @@ require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.7.1
 	git.bytestone.uk/hum3/gobank-db v0.3.0
-	git.bytestone.uk/hum3/gobank-workflow v0.2.0
+	git.bytestone.uk/hum3/gobank-workflow v0.4.0
 	git.bytestone.uk/hum3/lofigui v0.17.40
 	github.com/aws/aws-sdk-go-v2 v1.47.2
 	github.com/aws/aws-sdk-go-v2/config v1.33.8

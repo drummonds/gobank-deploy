@@ -160,7 +160,6 @@ gobank prerequisites above.
 The scenario workflow as the instrument: what was asked, the budget it
 had, what it reached, and a verdict; the figures are the journal's pages
 and the customer journey is the user-facing measure.
-- #26 Customer journey probe: the staff pages walked in sequence as a member of staff would, timed per page and end to end, defined as data so the gates can run it
 
 ## Engine hardening
 

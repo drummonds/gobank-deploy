@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-16
+
+ - Short perf runs (-customers, -days, -ceiling); days stage retries Run then aborts; no network create race (#38, #39, #40)
+
 ### Added
 - A short perf run (#38): `gobank-deploy perf` takes `-customers`
   (default 10,000), `-days` (the days stage runs that many days instead
@@ -21,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Ups at once no longer race to create the private network (#40): the
   provider refusing a second create as a name already used is the
   network existing. `perf -scales small,large` lost its large run to it.
+
+### Roadmap
+- #26 Customer journey probe: the staff pages walked in sequence as a member of staff would, timed per page and end to end, defined as data so the gates can run it
 
 ## [0.23.0] - 2026-10-16
 

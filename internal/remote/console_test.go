@@ -202,3 +202,24 @@ func TestConsoleReadsTheRoutesFigures(t *testing.T) {
 		t.Errorf("a release without routes gives none: %+v", rd.Routes)
 	}
 }
+
+// gobank with the data's size reports every table, biggest first, and
+// the whole database; a release without them gives none.
+func TestConsoleReadsTheTableSizes(t *testing.T) {
+	body := `{"version":"v0.56.0","tables":[{"name":"movements","rows":44000000,"bytes":9000000000},{"name":"customers","rows":10000,"bytes":2000000}],"database_bytes":9100000000}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
+	defer ts.Close()
+	rd, err := (&Console{}).Read(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []perf.Table{{Name: "movements", Rows: 44_000_000, Bytes: 9_000_000_000}, {Name: "customers", Rows: 10_000, Bytes: 2_000_000}}
+	if !reflect.DeepEqual(rd.Tables, want) || rd.DatabaseBytes != 9_100_000_000 {
+		t.Errorf("tables = %+v, database %d; want %+v, 9100000000", rd.Tables, rd.DatabaseBytes, want)
+	}
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"version":"v0.55.0"}`)) }))
+	defer ts2.Close()
+	if rd, _ := (&Console{}).Read(context.Background(), ts2.URL); rd.Tables != nil || rd.DatabaseBytes != 0 {
+		t.Errorf("a release without sizes gives none: %+v %d", rd.Tables, rd.DatabaseBytes)
+	}
+}

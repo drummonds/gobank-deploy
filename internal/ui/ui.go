@@ -5,6 +5,7 @@ package ui
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"embed"
 	"errors"
@@ -924,10 +925,53 @@ type perfView struct {
 	LastDay   string // "1m25s over 96,000 accounts"
 	Row       string // the markdown row for benchmark.md
 	Routes    []perfRouteView
+	Tables    []perfTableView // biggest first
+	Database  string          // the database's size on disk; "" when not read
+}
+
+// perfTableView is one table of a run's database: its rows, its size and
+// its share of the whole.
+type perfTableView struct {
+	Name, Rows, Size, Share string
+}
+
+// viewPerfTables is the tables biggest first, each share of the
+// database's size to the nearest percent.
+func viewPerfTables(tables []perf.Table, total int64) []perfTableView {
+	sorted := slices.Clone(tables)
+	slices.SortStableFunc(sorted, func(a, b perf.Table) int { return cmp.Compare(b.Bytes, a.Bytes) })
+	var out []perfTableView
+	for _, t := range sorted {
+		v := perfTableView{Name: t.Name, Rows: groupInt(t.Rows), Size: byteSize(t.Bytes)}
+		if total > 0 {
+			v.Share = fmt.Sprintf("%.0f%%", 100*float64(t.Bytes)/float64(total))
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// byteSize is n bytes to one place in the largest unit it reaches, the
+// units of 1,024 as PostgreSQL's pg_size_pretty counts them.
+func byteSize(n int64) string {
+	units := []string{"bytes", "kB", "MB", "GB", "TB"}
+	f, i := float64(n), 0
+	for f >= 1024 && i < len(units)-1 {
+		f /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	return fmt.Sprintf("%.1f %s", f, units[i])
 }
 
 func viewPerf(r perf.Run) perfView {
-	v := perfView{Run: r, Date: r.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04"), Memory: fmt.Sprintf("%g GB", r.MemoryGB), Customers: groupInt(int64(r.Customers)), Routes: viewPerfRoutes(r.Routes)}
+	v := perfView{Run: r, Date: r.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04"), Memory: fmt.Sprintf("%g GB", r.MemoryGB), Customers: groupInt(int64(r.Customers)), Routes: viewPerfRoutes(r.Routes),
+		Tables: viewPerfTables(r.Tables, r.DatabaseBytes)}
+	if r.DatabaseBytes > 0 {
+		v.Database = byteSize(r.DatabaseBytes)
+	}
 	if r.AddSpan > 0 {
 		v.Rate = fmt.Sprintf("%.1f", r.CustomersPerSec)
 	}

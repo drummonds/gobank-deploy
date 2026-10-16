@@ -35,7 +35,7 @@ var PerfDefinition = wf.Definition{
 		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
 		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
 		{Name: "days", Description: "Run until the bank's day is the years on (7), or the days asked for, or the ceiling (6h) is reached, then Stop; a demo found stopped is pressed Run again at most twice in a row, then the stage fails; read account days per 12h and the last day it is made of", Source: perfSrc},
-		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95, read off about.json (gobank v0.51.0 onwards; none before)", Source: perfSrc},
+		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95 (gobank v0.51.0 onwards; none before), and every table's rows and size on disk with the database's whole size (gobank with about.json's tables; none before), read off about.json", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
 	},
 }
@@ -487,8 +487,9 @@ func (r *perfRun) days(ctx context.Context) error {
 }
 
 // routes records what the demo measured of every route it served over
-// the run: the last reading before the server goes, and with it the
-// figures, which live only in the demo's process.
+// the run, and its tables' sizes: the last reading before the server
+// goes, and with it the figures, which live only in the demo's process
+// and on its disk.
 func (r *perfRun) routes(ctx context.Context) error {
 	fmt.Fprintln(r.out, "== routes")
 	rec, err := r.record(ctx)
@@ -503,7 +504,8 @@ func (r *perfRun) routes(ctx context.Context) error {
 		return err
 	}
 	rec.Routes = rd.Routes
-	fmt.Fprintf(r.out, "%d routes measured\n", len(rec.Routes))
+	rec.Tables, rec.DatabaseBytes = rd.Tables, rd.DatabaseBytes
+	fmt.Fprintf(r.out, "%d routes measured; %d tables sized\n", len(rec.Routes), len(rec.Tables))
 	return r.p.Perfs.Update(ctx, *rec)
 }
 

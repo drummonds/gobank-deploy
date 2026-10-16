@@ -50,6 +50,14 @@
         <tbody>{{range .Routes}}<tr><td><a href="/perf/routes?route={{.Pattern}}"><code>{{.Pattern}}</code></a></td><td>{{.Count}}</td><td>{{.P95}}</td></tr>{{end}}</tbody>
       </table>
       {{end}}
+      {{if .Tables}}
+      <h2 class="title is-5">Tables</h2>
+      <p class="is-size-7 mb-2">The demo's database as it stood just before the server was removed: {{.Database}} on disk, each table biggest first with its indexes and TOAST, and the rows PostgreSQL estimates it holds.</p>
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Table</th><th>Rows (estimated)</th><th>Size</th><th>Share of database</th></tr></thead>
+        <tbody>{{range .Tables}}<tr><td><code>{{.Name}}</code></td><td>{{.Rows}}</td><td>{{.Size}}</td><td>{{.Share}}</td></tr>{{end}}</tbody>
+      </table>
+      {{end}}
       {{end}}
     </div>
   </section>

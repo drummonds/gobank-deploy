@@ -52,6 +52,7 @@ func TestRunIsRecordedThenFilledInByStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Routes = []Route{{Pattern: "GET /v1/health", Count: 12, P95: 2500 * time.Microsecond}, {Pattern: "/customers/", Count: 3, P95: 40 * time.Millisecond}}
+	first.Tables, first.DatabaseBytes = []Table{{Name: "movements", Rows: 44_000_000, Bytes: 9_000_000_000}, {Name: "customers", Rows: 10_000, Bytes: 2_000_000}}, 9_100_000_000
 	first.DaysSpan, first.Days, first.AccountDaysPer12h, first.LastDay, first.LastDayAccounts = 10*time.Minute, 7, 9_000_000, 85*time.Second, 96000
 	if err := s.Update(ctx, first); err != nil {
 		t.Fatal(err)

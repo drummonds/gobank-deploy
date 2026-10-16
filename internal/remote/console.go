@@ -63,6 +63,12 @@ type about struct {
 		Count   int64  `json:"count"`
 		P95     string `json:"p95"`
 	} `json:"routes"`
+	Tables []struct {
+		Name  string `json:"name"`
+		Rows  int64  `json:"rows"`
+		Bytes int64  `json:"bytes"`
+	} `json:"tables"`
+	DatabaseBytes int64 `json:"database_bytes"`
 }
 
 func (c *Console) client() *http.Client {
@@ -126,6 +132,10 @@ func (c *Console) Read(ctx context.Context, base string) (drills.Reading, error)
 		p95, _ := time.ParseDuration(rt.P95)
 		rd.Routes = append(rd.Routes, perf.Route{Pattern: rt.Pattern, Count: rt.Count, P95: p95})
 	}
+	for _, t := range a.Tables {
+		rd.Tables = append(rd.Tables, perf.Table(t))
+	}
+	rd.DatabaseBytes = a.DatabaseBytes
 	return rd, nil
 }
 

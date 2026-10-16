@@ -288,6 +288,12 @@ type Reading struct {
 	// What the demo has measured of every route it served since its
 	// process started (gobank v0.51.0 onwards; nil before).
 	Routes []perf.Route
+
+	// The data's size on the demo's PostgreSQL: every table biggest
+	// first, and the whole database (gobank with about.json's tables;
+	// none before, and none on pglike).
+	Tables        []perf.Table
+	DatabaseBytes int64
 }
 
 // Observation is the reading recorded against a moment of the drill.

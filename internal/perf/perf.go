@@ -46,6 +46,20 @@ type Run struct {
 	// off about.json just before the server is removed (gobank v0.51.0
 	// onwards; none before).
 	Routes []Route
+
+	// The data's size on the demo's PostgreSQL, read with the routes:
+	// every table biggest first, and the whole database (gobank with
+	// about.json's tables; none before).
+	Tables        []Table
+	DatabaseBytes int64
+}
+
+// Table is one table's share of the database: its size on disk with
+// indexes and TOAST, and the rows PostgreSQL estimates it holds.
+type Table struct {
+	Name  string
+	Rows  int64
+	Bytes int64
 }
 
 // Route is one route's figures as the demo measured them since its
@@ -84,6 +98,10 @@ CREATE INDEX IF NOT EXISTS idx_perf_runs_created ON perf_runs(created_at);
 	{Version: 2, Name: "the routes' figures", Phase: db.Expand, SQL: `
 ALTER TABLE perf_runs ADD COLUMN IF NOT EXISTS routes TEXT NOT NULL DEFAULT '[]';
 `},
+	{Version: 3, Name: "the tables' sizes", Phase: db.Expand, SQL: `
+ALTER TABLE perf_runs ADD COLUMN IF NOT EXISTS tables TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE perf_runs ADD COLUMN IF NOT EXISTS database_bytes BIGINT NOT NULL DEFAULT 0;
+`},
 }
 
 // route is a Route as the routes column holds it, the p95 in nanoseconds.
@@ -91,6 +109,13 @@ type route struct {
 	Pattern string `json:"pattern"`
 	Count   int64  `json:"count"`
 	P95     int64  `json:"p95_ns"`
+}
+
+// table is a Table as the tables column holds it.
+type table struct {
+	Name  string `json:"name"`
+	Rows  int64  `json:"rows"`
+	Bytes int64  `json:"bytes"`
 }
 
 // Store keeps performance runs in a database shared with the workflow
@@ -123,10 +148,20 @@ func (s *Store) Update(ctx context.Context, r Run) error {
 	if err != nil {
 		return err
 	}
+	tables := make([]table, len(r.Tables))
+	for i, t := range r.Tables {
+		tables[i] = table(t)
+	}
+	tjs, err := json.Marshal(tables)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `UPDATE perf_runs SET add_span_ns = $1, customers = $2, customers_per_sec = $3,
-		days_span_ns = $4, days = $5, account_days_per_12h = $6, last_day_ns = $7, last_day_accounts = $8, routes = $9
-		WHERE run_id = $10`,
-		int64(r.AddSpan), r.Customers, r.CustomersPerSec, int64(r.DaysSpan), r.Days, r.AccountDaysPer12h, int64(r.LastDay), r.LastDayAccounts, string(js), r.RunID)
+		days_span_ns = $4, days = $5, account_days_per_12h = $6, last_day_ns = $7, last_day_accounts = $8, routes = $9,
+		tables = $10, database_bytes = $11
+		WHERE run_id = $12`,
+		int64(r.AddSpan), r.Customers, r.CustomersPerSec, int64(r.DaysSpan), r.Days, r.AccountDaysPer12h, int64(r.LastDay), r.LastDayAccounts, string(js),
+		string(tjs), r.DatabaseBytes, r.RunID)
 	return err
 }
 
@@ -145,7 +180,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]Run, error) {
 }
 
 const selectRuns = `SELECT run_id, environment, scale, server_type, memory_gb, version, created_at,
-	add_span_ns, customers, customers_per_sec, days_span_ns, days, account_days_per_12h, last_day_ns, last_day_accounts, routes FROM perf_runs`
+	add_span_ns, customers, customers_per_sec, days_span_ns, days, account_days_per_12h, last_day_ns, last_day_accounts, routes, tables, database_bytes FROM perf_runs`
 
 func (s *Store) query(ctx context.Context, q string, args ...any) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -157,9 +192,10 @@ func (s *Store) query(ctx context.Context, q string, args ...any) ([]Run, error)
 	for rows.Next() {
 		var r Run
 		var addSpan, daysSpan, lastDay int64
-		var js string
+		var js, tjs string
 		if err := rows.Scan(&r.RunID, &r.Environment, &r.Scale, &r.ServerType, &r.MemoryGB, &r.Version, &r.CreatedAt,
-			&addSpan, &r.Customers, &r.CustomersPerSec, &daysSpan, &r.Days, &r.AccountDaysPer12h, &lastDay, &r.LastDayAccounts, &js); err != nil {
+			&addSpan, &r.Customers, &r.CustomersPerSec, &daysSpan, &r.Days, &r.AccountDaysPer12h, &lastDay, &r.LastDayAccounts, &js,
+			&tjs, &r.DatabaseBytes); err != nil {
 			return nil, err
 		}
 		var routes []route
@@ -168,6 +204,13 @@ func (s *Store) query(ctx context.Context, q string, args ...any) ([]Run, error)
 		}
 		for _, rt := range routes {
 			r.Routes = append(r.Routes, Route{rt.Pattern, rt.Count, time.Duration(rt.P95)})
+		}
+		var tables []table
+		if err := json.Unmarshal([]byte(tjs), &tables); err != nil {
+			return nil, fmt.Errorf("perf run %s tables: %w", r.RunID, err)
+		}
+		for _, t := range tables {
+			r.Tables = append(r.Tables, Table(t))
 		}
 		r.AddSpan, r.DaysSpan, r.LastDay = time.Duration(addSpan), time.Duration(daysSpan), time.Duration(lastDay)
 		r.CreatedAt = r.CreatedAt.UTC()

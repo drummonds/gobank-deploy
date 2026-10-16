@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+ - Perf run records the demo database's table sizes in its last reading; the run's page shows them biggest first with rows, size and share of the database (#42; needs gobank with about.json `tables`, gobank #164)
+
 ## [0.24.0] - 2026-10-16
 
  - Short perf runs (-customers, -days, -ceiling); days stage retries Run then aborts; no network create race (#38, #39, #40)

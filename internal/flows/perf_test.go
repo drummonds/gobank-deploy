@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -87,6 +88,8 @@ type perfConsole struct {
 	ignoreStarts int // presses of Run the demo ignores before one takes; -1 ignores every one
 	addCalls     []int
 	routes       []perf.Route // what every demo has measured of its routes
+	tables       []perf.Table // every demo's tables' sizes
+	dbBytes      int64
 }
 
 func (c *perfConsole) demo(url string) *demoState {
@@ -117,7 +120,8 @@ func (c *perfConsole) Read(_ context.Context, url string) (drills.Reading, error
 	}
 	rd := drills.Reading{Version: c.ops.version, About: true, Running: d.running,
 		Position:          &drills.Position{Day: dayOf(d.dayCount), DayCount: d.dayCount, Customers: d.customers, Savings: "£1.00", Lending: "£0.50"},
-		AccountDaysPer12h: 9_000_000, LastDayDuration: 85 * time.Second, LastDayAccounts: 2 * d.customers, Routes: c.routes}
+		AccountDaysPer12h: 9_000_000, LastDayDuration: 85 * time.Second, LastDayAccounts: 2 * d.customers, Routes: c.routes,
+		Tables: c.tables, DatabaseBytes: c.dbBytes}
 	if now.Before(d.addUntil) {
 		rd.Adding = true
 	} else if d.lastBatch > 0 {
@@ -215,6 +219,7 @@ func (h *perfHarness) run(scale string) error {
 func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	h := newPerfHarness(t)
 	h.con.routes = []perf.Route{{Pattern: "GET /v1/health", Count: 12, P95: 2500 * time.Microsecond}}
+	h.con.tables, h.con.dbBytes = []perf.Table{{Name: "movements", Rows: 44_000_000, Bytes: 9_000_000_000}}, 9_100_000_000
 	if err := h.run("large"); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +272,10 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	if len(rec.Routes) != 1 || rec.Routes[0] != h.con.routes[0] {
 		t.Errorf("routes = %+v, want %+v", rec.Routes, h.con.routes)
 	}
-	for _, want := range []string{"customers/s", "account days", "ceiling", "1 routes"} {
+	if !reflect.DeepEqual(rec.Tables, h.con.tables) || rec.DatabaseBytes != h.con.dbBytes {
+		t.Errorf("tables = %+v, database %d; want %+v, %d", rec.Tables, rec.DatabaseBytes, h.con.tables, h.con.dbBytes)
+	}
+	for _, want := range []string{"customers/s", "account days", "ceiling", "1 routes", "1 tables"} {
 		if !strings.Contains(h.out.String(), want) {
 			t.Errorf("log should say %q:\n%s", want, h.out.String())
 		}

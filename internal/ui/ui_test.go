@@ -1017,7 +1017,8 @@ func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
 	op.mu.Lock()
 	op.perfRuns = []perf.Run{{RunID: "run-9", Environment: "perf1", Scale: "large", ServerType: "cx53", MemoryGB: 32, Version: "v0.12.0",
 		CreatedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local), AddSpan: 10 * time.Minute, Customers: 48000, CustomersPerSec: 80.5,
-		DaysSpan: 10 * time.Minute, Days: 7, AccountDaysPer12h: 9_000_000, LastDay: 85 * time.Second, LastDayAccounts: 96000}}
+		DaysSpan: 10 * time.Minute, Days: 7, AccountDaysPer12h: 9_000_000, LastDay: 85 * time.Second, LastDayAccounts: 96000,
+		Tables: []perf.Table{{Name: "movements", Rows: 44_000_000, Bytes: 6 << 30}, {Name: "customers", Rows: 10_000, Bytes: 3 << 20}}, DatabaseBytes: 8 << 30}}
 	op.runs = []wf.RunRecord{{ID: "run-9", WorkflowType: "perf", Key: "perf1 large 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
 	code, body := get(t, ts, "/perf")
@@ -1029,6 +1030,9 @@ func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("perf page missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "<code>movements</code>") {
+		t.Error("the history keeps to the figures: the tables are on the run's page")
 	}
 }
 
@@ -1292,6 +1296,34 @@ func TestRunPageShowsAPerfRunsRoutes(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page missing %q:\n%s", want, body)
 		}
+	}
+}
+
+// A performance run's page shows the data's budget: the database's size,
+// then each table biggest first with its rows, its size and its share of
+// the whole. A run from before gobank reported sizes shows no table.
+func TestRunPageShowsAPerfRunsTableSizes(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.perfRuns = []perf.Run{{RunID: "run-3", Environment: "perf-small", Scale: "small", Version: "v0.56.0", CreatedAt: time.Now(),
+		Tables: []perf.Table{{Name: "customers", Rows: 10_000, Bytes: 3 << 20}, {Name: "movements", Rows: 44_000_000, Bytes: 6 << 30}}, DatabaseBytes: 8 << 30}}
+	op.runs = []wf.RunRecord{{ID: "run-3", WorkflowType: "perf", Key: "perf-small small 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/workflows/run-3")
+	for _, want := range []string{"8.0 GB on disk", "<td><code>movements</code></td><td>44,000,000</td><td>6.0 GB</td><td>75%</td>", "<td><code>customers</code></td><td>10,000</td><td>3.0 MB</td><td>0%</td>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "<code>movements</code>") > strings.Index(body, "<code>customers</code>") {
+		t.Error("tables not biggest first")
+	}
+
+	op.mu.Lock()
+	op.perfRuns[0].Tables, op.perfRuns[0].DatabaseBytes = nil, 0
+	op.mu.Unlock()
+	if _, body := get(t, ts, "/workflows/run-3"); strings.Contains(body, "Share of database") {
+		t.Error("a run without sizes shows no tables")
 	}
 }
 

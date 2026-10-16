@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   schema v1) and shown on **Load tests** (`/perf/load`): capacity against
   gobank's version, a line per scale. `gobank-deploy journey -base URL`
   runs the climb alone from anywhere.
-- The private network `gobank` (10.0.0.0/16, subnet 10.0.1.0/24,
+- The private network `gobank` (10.128.0.0/16, subnet 10.128.1.0/24,
   eu-central): every server is created on it, and an existing one is
   attached on its next `up`.
 

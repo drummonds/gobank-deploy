@@ -21,7 +21,7 @@
       <figure><img src="/assets/components.svg" alt="Components: laptop and hydrogen driving Hetzner Cloud and Route 53 with secrets from Bitwarden"></figure>
 
       <h2 class="title is-5">Networking and firewalls</h2>
-      <p>Every server is on the private network <code>gobank</code> (10.0.0.0/16) and has a firewall of its own name. The firewalls filter the public
+      <p>Every server is on the private network <code>gobank</code> (10.128.0.0/16) and has a firewall of its own name. The firewalls filter the public
         interface only: ssh and the demo from the admitted ranges (<code>-admit</code>, home), ping from anywhere. A loader reaches a demo over the private network, unfiltered.
         The rules are set on every up.</p>
       <figure><img src="/assets/networking.svg" alt="Networking: home reaches the demo and the loader on 22 and 1347; the loader reaches the demo over the private network; the internet only pings"></figure>

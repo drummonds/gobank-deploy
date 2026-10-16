@@ -49,7 +49,7 @@ func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, e
 	}
 	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4, Labels: spec.Labels}
 	if spec.Network != "" {
-		s.PrivateIP = fmt.Sprintf("10.0.1.%d", len(c.servers)+2)
+		s.PrivateIP = fmt.Sprintf("10.128.1.%d", len(c.servers)+2)
 	}
 	c.servers[spec.Name] = s
 	return s, nil
@@ -78,7 +78,7 @@ func (c *fakeCloud) EnsureNetwork(_ context.Context, n Network) error {
 
 func (c *fakeCloud) AttachNetwork(_ context.Context, server, network string) error {
 	c.attached = append(c.attached, server+" "+network)
-	c.servers[server].PrivateIP = "10.0.1.99"
+	c.servers[server].PrivateIP = "10.128.1.99"
 	return nil
 }
 

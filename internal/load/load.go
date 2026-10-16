@@ -63,7 +63,7 @@ func Sequence(n int) func() string {
 
 // Walker walks journeys against a BFF over HTTP.
 type Walker struct {
-	Base     string // the BFF, e.g. http://10.0.1.2:1347/
+	Base     string // the BFF, e.g. http://10.128.1.2:1347/
 	Password string // the environment's app password, every customer's
 	Client   *http.Client
 }

@@ -39,7 +39,7 @@ func TestUpAdmitsSSHAndTheDemoFromTheAdmittedRangesOnly(t *testing.T) {
 // exists sets its firewall to them.
 func TestUpReconcilesTheFirewallOfAnExistingServer(t *testing.T) {
 	h := newHarness()
-	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23", PrivateIP: "10.0.1.5"}
+	h.cloud.servers["gobank-prod"] = &Server{Name: "gobank-prod", IP: "10.0.0.7", Type: "cx23", PrivateIP: "10.128.1.5"}
 	h.cloud.firewalls["gobank-prod"] = true
 	h.cloud.rules["gobank-prod"] = []FirewallRule{{Description: "ssh", Protocol: "tcp", Port: "22"}}
 	h.d.Admit = home
@@ -68,8 +68,8 @@ func TestWithoutAdmittedRangesTheFirewallIsOpen(t *testing.T) {
 	}
 }
 
-// Every server is on the private network gobank (10.0.0.0/16, its subnet
-// 10.0.1.0/24 in eu-central, where every location the deployer tries
+// Every server is on the private network gobank (10.128.0.0/16, its subnet
+// 10.128.1.0/24 in eu-central, where every location the deployer tries
 // is): a new one is created on it, an existing one without a private
 // address is attached.
 func TestUpPutsTheServerOnThePrivateNetwork(t *testing.T) {
@@ -77,7 +77,7 @@ func TestUpPutsTheServerOnThePrivateNetwork(t *testing.T) {
 	if _, err := h.d.Up(context.Background(), UpOptions{Env: prod, Scale: "small", Create: true}); err != nil {
 		t.Fatal(err)
 	}
-	want := Network{Name: "gobank", IPRange: "10.0.0.0/16", Subnet: "10.0.1.0/24", Zone: "eu-central"}
+	want := Network{Name: "gobank", IPRange: "10.128.0.0/16", Subnet: "10.128.1.0/24", Zone: "eu-central"}
 	if len(h.cloud.networks) != 1 || h.cloud.networks[0] != want {
 		t.Errorf("networks = %+v, want %+v", h.cloud.networks, want)
 	}
@@ -147,10 +147,10 @@ func TestLoaderIsABoxOnTheNetworkWithThisProgramOnIt(t *testing.T) {
 // off the command's output.
 func TestJourneyRunsOnTheLoaderAgainstThePrivateAddress(t *testing.T) {
 	h := newHarness()
-	h.cloud.servers["gobank-load1-loader"] = &Server{Name: "gobank-load1-loader", IP: "10.0.0.8", PrivateIP: "10.0.1.3"}
+	h.cloud.servers["gobank-load1-loader"] = &Server{Name: "gobank-load1-loader", IP: "10.0.0.8", PrivateIP: "10.128.1.3"}
 	out, _ := json.Marshal(load.Result{Capacity: 50, Breach: "100 users: login p95 2.4s over 2s"})
 	h.host.output = string(out)
-	target := &Server{Name: "gobank-load1", PrivateIP: "10.0.1.2", Labels: map[string]string{"app-password": "pw123"}}
+	target := &Server{Name: "gobank-load1", PrivateIP: "10.128.1.2", Labels: map[string]string{"app-password": "pw123"}}
 	res, err := h.d.Journey(context.Background(), Environment{Name: "load1-loader"}, target, JourneyOptions{Customers: 2000, Ladder: []int{1, 5, 50, 100}, Reps: 10, Budget: 2 * time.Second})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestJourneyRunsOnTheLoaderAgainstThePrivateAddress(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 	cmd := h.host.runs[len(h.host.runs)-1]
-	for _, want := range []string{"GOBANK_APP_PASSWORD='pw123'", "/usr/local/bin/gobank-deploy journey", "-base http://10.0.1.2:1347/", "-customers 2000", "-ladder 1,5,50,100", "-reps 10", "-budget 2s"} {
+	for _, want := range []string{"GOBANK_APP_PASSWORD='pw123'", "/usr/local/bin/gobank-deploy journey", "-base http://10.128.1.2:1347/", "-customers 2000", "-ladder 1,5,50,100", "-reps 10", "-budget 2s"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("command %q lacks %q", cmd, want)
 		}

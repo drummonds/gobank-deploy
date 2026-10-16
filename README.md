@@ -257,7 +257,7 @@ stderr. It needs no token; the loader runs it.
 
 ### Firewalls and the private network
 
-Every server is on the private network `gobank` (10.0.0.0/16, created on
+Every server is on the private network `gobank` (10.128.0.0/16, created on
 first use) and has a firewall of its own name, set on every `up`: ssh
 (22) and the demo (1347) from the `-admit` ranges, ping from anywhere.
 `-admit` (or `GOBANK_DEPLOY_ADMIT`) is home's range, comma separated

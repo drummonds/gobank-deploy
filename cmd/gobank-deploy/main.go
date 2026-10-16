@@ -133,7 +133,7 @@ Global flags (before the subcommand):
   -dns DOMAIN  each environment is <env>.DOMAIN in Route 53 (default gobank.drummonds.net; "" for none)
   -admit CIDRS the ranges every firewall admits to ssh (22) and the demo (1347), comma separated
                (default $GOBANK_DEPLOY_ADMIT; empty admits anywhere); set on every up. The private
-               network gobank (10.0.0.0/16) is not filtered: a loader reaches a demo there
+               network gobank (10.128.0.0/16) is not filtered: a loader reaches a demo there
   -repo URL    gobank on the Forgejo: its newest tag is reported, and its release of that tag
                fetched into -store (default https://git.bytestone.uk/hum3/gobank; "" for none)
 
@@ -174,7 +174,7 @@ func main() {
 	}
 	if cmd == "journey" {
 		fs := flag.NewFlagSet("journey", flag.ExitOnError)
-		base := fs.String("base", "", "the customer BFF, e.g. http://10.0.1.2:1347/")
+		base := fs.String("base", "", "the customer BFF, e.g. http://10.128.1.2:1347/")
 		customers := fs.Int("customers", 1000, "customers on the books, walked in sequence")
 		ladder := fs.String("ladder", "", "concurrent users at each rung (default 1,2,5,10,20,50,100,200,500)")
 		reps := fs.Int("reps", 10, "journeys each user walks at a rung")

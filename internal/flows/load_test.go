@@ -31,7 +31,7 @@ func (o *loadOps) Loader(_ context.Context, env deploy.Environment, expires time
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.loaders = append(o.loaders, env.Name+"@"+expires.Format(time.RFC3339))
-	o.servers[env.Name] = &deploy.Server{Name: "gobank-" + env.Name, IP: "10.0.0.10", PrivateIP: "10.0.1.3", Type: "cx23"}
+	o.servers[env.Name] = &deploy.Server{Name: "gobank-" + env.Name, IP: "10.0.0.10", PrivateIP: "10.128.1.3", Type: "cx23"}
 	return nil
 }
 

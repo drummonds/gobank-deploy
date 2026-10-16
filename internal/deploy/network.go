@@ -18,7 +18,7 @@ type Network struct {
 // PrivateNetwork is the one network every gobank server is on, so a
 // loader reaches a demo without the demo's port being open to the world.
 // eu-central holds fsn1, nbg1 and hel1, the locations tried.
-var PrivateNetwork = Network{Name: "gobank", IPRange: "10.0.0.0/16", Subnet: "10.0.1.0/24", Zone: "eu-central"}
+var PrivateNetwork = Network{Name: "gobank", IPRange: "10.128.0.0/16", Subnet: "10.128.1.0/24", Zone: "eu-central"}
 
 // network makes sure the private network exists.
 func (d *Deployer) network(ctx context.Context) error {

@@ -20,7 +20,7 @@ world: "Internet" {class: part}
 
 hetzner: "Hetzner Cloud, eu-central" {
   class: place
-  net: "private network gobank 10.0.0.0/16 · subnet 10.0.1.0/24 · not filtered" {
+  net: "private network gobank 10.128.0.0/16 · subnet 10.128.1.0/24 · not filtered" {
     class: place
     target: "gobank-<env>\nPostgreSQL, demo :1347\nfirewall gobank-<env>" {class: part}
     loader: "gobank-<env>-loader\nthis program, no demo\nfirewall gobank-<env>-loader" {class: part}
@@ -30,6 +30,6 @@ hetzner: "Hetzner Cloud, eu-central" {
 home.laptop -> hetzner.net.target: "22 ssh · 1347 demo"
 home.hydrogen -> hetzner.net.target: "22 ssh · 1347 demo"
 home.hydrogen -> hetzner.net.loader: "22 ssh: install, run the journey"
-hetzner.net.loader -> hetzner.net.target: "1347 over 10.0.1.x: the load"
+hetzner.net.loader -> hetzner.net.target: "1347 over 10.128.1.x: the load"
 world -> hetzner.net.target: "icmp only" {class: closed}
 world -> hetzner.net.target: "443 · later: Caddy in front of the BFF" {class: closed}

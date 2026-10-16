@@ -1,0 +1,52 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      <nav class="breadcrumb is-small" aria-label="breadcrumbs"><ul>
+        <li><a href="/perf">Performance</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Scans</a></li>
+      </ul></nav>
+      <h1 class="title is-4">Scans</h1>
+      <p class="mb-4">Every route of an environment as it stands, loaded at each rung of the concurrency ladder (<code>gobank-deploy scan</code>).
+        A route's figure is its p95 and throughput at the top rung it reached. The latest scan is read against the one before it,
+        and every route is followed across the scans.</p>
+      {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
+      {{with .scans}}
+      {{if not .Scans}}<p class="has-text-grey">No scans yet. Run one with <code>gobank-deploy scan &lt;env&gt;</code>.</p>{{end}}
+      {{with .Latest}}
+      <h2 class="title is-5">Critical on {{.Date}}</h2>
+      {{end}}
+      {{if .Critical}}
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Route</th><th>Why</th></tr></thead>
+        <tbody>{{range .Critical}}<tr><td><code>{{.Method}} {{.Path}}</code></td><td class="has-text-danger">{{.Why}}</td></tr>{{end}}</tbody>
+      </table>
+      {{else if .Latest}}<p class="has-text-grey mb-4">None: nothing failed, nothing newly unscanned, nothing over the {{.Budget}} budget.</p>{{end}}
+      {{if .Worst}}
+      <h2 class="title is-5">Ten worst on {{.Latest.Date}}{{with .Previous}} against {{.Date}}{{end}}</h2>
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Route</th><th>In flight</th><th>p95</th><th>per s</th><th>Before</th><th>Change</th></tr></thead>
+        <tbody>{{range .Worst}}<tr><td><code>{{.Method}} {{.Path}}</code></td><td>{{.Concurrency}}</td><td>{{.P95}}</td><td>{{.PerSecond}}</td><td>{{.Previous}}</td>
+          <td{{if eq .Change "worse"}} class="has-text-danger"{{else if eq .Change "better"}} class="has-text-success"{{end}}>{{.Change}}{{if .Delta}} ({{.Delta}}){{end}}</td></tr>{{end}}</tbody>
+      </table>
+      {{end}}
+      {{if .Scans}}
+      <h2 class="title is-5">The scans</h2>
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Date</th><th>Environment</th><th>gobank</th><th>Server</th><th>Customers</th><th>Scanned</th><th>Not scanned</th><th>State</th></tr></thead>
+        <tbody>{{range .Scans}}<tr><td><a href="/perf/scans/{{.RunID}}">{{.Date}}</a></td><td>{{.Environment}}</td><td>{{.Version}}</td><td>{{.ServerType}}, {{.Memory}}</td><td>{{.Customers}}</td><td>{{.Scanned}}</td><td>{{.NotScanned}}</td>
+          <td>{{with .Run}}{{.Status}}{{if .Error}} <span class="has-text-danger">{{.Error}}</span>{{end}}{{end}}</td></tr>{{end}}</tbody>
+      </table>
+      <h2 class="title is-5">Every route across the scans</h2>
+      <p class="is-size-7 mb-2">p95 and requests a second at the top rung, oldest scan first; the routes ordered as the latest scan ranks them.</p>
+      <table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Route</th>{{range .Columns}}<th><a href="/perf/scans/{{.RunID}}">{{.Date}}</a><br>{{.Version}}</th>{{end}}</tr></thead>
+        <tbody>{{range .Trend}}<tr><td><code>{{.Method}} {{.Path}}</code></td>{{range .Points}}<td>{{if .Skipped}}<span class="has-text-grey" title="{{.Skipped}}">not scanned</span>{{else if .P95}}{{.P95}} · {{.PerSecond}}/s{{end}}</td>{{end}}</tr>{{end}}</tbody>
+      </table>
+      {{end}}
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>

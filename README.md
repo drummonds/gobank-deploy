@@ -223,6 +223,16 @@ documented with what it measured; commit the document and release gobank
 to publish it. A scan at 16 in flight is load: run it on preprod or a
 scenario's kept server, not prod.
 
+The page reads the scans under Performance: **Scans** (`/perf/scans`)
+lists them and reads the latest against the one before — the critical
+routes (failed, not scanned where the previous scan drove them, or p95 at
+the top rung over a 500 ms budget), the ten worst by p95 at the top rung
+with the move since the previous scan (better or worse beyond 10%), and
+every route across the scans, a column per scan — and each scan has its
+page (`/perf/scans/<run>`) with every route at each rung, worst route
+first, the routes not scanned with why. The run page and the journal
+link to it.
+
 ### Temporary environments: the demo workflow
 
 "Remove after" on either Create form runs the **demo** workflow instead of

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The scans readable (#33): **Scans** under Performance (`/perf/scans`)
+  lists every scan and reads the latest against the one before — the
+  critical routes (failed, newly not scanned, or p95 at the top rung over
+  a 500 ms budget), the ten worst by p95 with the move since the previous
+  scan, and every route across the scans, a column per scan — and each
+  scan has a page (`/perf/scans/<run>`) with every route at each rung,
+  worst route first, the routes not scanned with why. The run page and
+  the journal link to it; before, a scan's figures were only the journal
+  page's markdown in a `<pre>`.
+
 ## [0.20.0] - 2026-10-16
 
  - Stories 18, 21, 28 and the roadmap epic for 26/27: the scan workflow and concurrency ladder, the journal figures adding up, and the Hetzner list as last listed

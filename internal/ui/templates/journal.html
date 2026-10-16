@@ -13,7 +13,7 @@
       {{if not .runs}}<p class="has-text-grey">No scenario runs yet. Start one with <code>gobank-deploy scenario seven-years</code>.</p>{{end}}
       {{range .runs}}
       <div class="box">
-        <p class="has-text-weight-bold">{{.Title}} · <a href="/workflows/{{.RunID}}">details</a></p>
+        <p class="has-text-weight-bold">{{.Title}} · <a href="/workflows/{{.RunID}}">details</a>{{if .Scan}} · <a href="/perf/scans/{{.RunID}}">routes</a>{{end}}</p>
         {{with .Run}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
         {{if .Steps}}{{template "steps" .Steps}}{{end}}
         <p class="is-size-7">For <code>journal/{{.Filename}}</code>; the line for <code>journal/index.md</code>: <code>{{.IndexLine}}</code></p>

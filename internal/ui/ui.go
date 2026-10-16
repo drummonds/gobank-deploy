@@ -73,6 +73,8 @@ type Operator interface {
 	Perfs(ctx context.Context, limit int) ([]perf.Run, error)
 	// Scenarios lists recent scenario runs, most recent first: the journal.
 	Scenarios(ctx context.Context, limit int) ([]scenario.Run, error)
+	// Scenario is one scenario run by its workflow run's id; nil when there is none.
+	Scenario(ctx context.Context, runID string) (*scenario.Run, error)
 }
 
 // Ops is the production Operator: a Deployer per job, and the workflows.
@@ -89,6 +91,13 @@ func (o Ops) Scenarios(ctx context.Context, limit int) ([]scenario.Run, error) {
 		return nil, nil
 	}
 	return o.Scenario_.Scenarios.List(ctx, limit)
+}
+
+func (o Ops) Scenario(ctx context.Context, runID string) (*scenario.Run, error) {
+	if o.Scenario_ == nil || o.Scenario_.Scenarios == nil {
+		return nil, nil
+	}
+	return o.Scenario_.Scenarios.Get(ctx, runID)
 }
 
 func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
@@ -423,7 +432,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -443,6 +452,8 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("GET /drills", s.drills)
 	s.mux.HandleFunc("POST /perf", s.perf)
 	s.mux.HandleFunc("GET /perf", s.perfs)
+	s.mux.HandleFunc("GET /perf/scans", s.scans)
+	s.mux.HandleFunc("GET /perf/scans/{id}", s.scan)
 	s.mux.HandleFunc("GET /workflows", s.workflows)
 	s.mux.HandleFunc("GET /workflows/{id}", s.run)
 	s.mux.HandleFunc("GET /workflows/{id}/diagram.d2", s.runDiagram)
@@ -937,6 +948,7 @@ func (s *Server) perfs(w http.ResponseWriter, r *http.Request) {
 // journal folder, with the workflow run's state and steps.
 type journalView struct {
 	Title, Filename, Page, IndexLine, RunID string
+	Scan                                    bool     // a scan, with its own page under Performance
 	Run                                     *runView // the workflow run; nil when the store has lost it
 	Steps                                   []stepView
 }
@@ -947,7 +959,7 @@ func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
 	list, err := s.op.Scenarios(r.Context(), 50)
 	var views []journalView
 	for _, run := range list {
-		v := journalView{Title: scenario.Title(run), Filename: scenario.Filename(run), Page: scenario.Page(run), IndexLine: scenario.IndexLine(run), RunID: run.RunID}
+		v := journalView{Title: scenario.Title(run), Filename: scenario.Filename(run), Page: scenario.Page(run), IndexLine: scenario.IndexLine(run), RunID: run.RunID, Scan: scenario.IsScan(run)}
 		if rec, steps, err := s.op.Run(r.Context(), run.RunID); err == nil && rec != nil {
 			rv := viewRun(*rec)
 			v.Run, v.Steps = &rv, viewSteps(steps)
@@ -1032,6 +1044,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if rec.WorkflowType == flows.WorkflowScan {
+		if run, err := s.op.Scenario(r.Context(), rec.ID); err == nil && run != nil {
+			data["scan"] = viewScan(*run)
+		}
+	}
 	if rec.WorkflowType == flows.WorkflowPerf {
 		if list, err := s.op.Perfs(r.Context(), 200); err == nil {
 			for _, p := range list {
@@ -1052,4 +1069,192 @@ func (s *Server) explorer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "explorer", map[string]any{"html": template.HTML(s.Explorer(r.Context(), r.URL.RequestURI()))})
+}
+
+// Budget is the p95 at the top rung a route may reach before the scans
+// page calls it critical: one number for every route until the journey
+// routes are named (#26).
+const Budget = 500 * time.Millisecond
+
+// routeView is a route of a scan as the pages show it: at its top rung,
+// or not scanned with why.
+type routeView struct {
+	Route, Method, Path string
+	Concurrency, N      int
+	P50, P95, PerSecond string
+	Skipped             string
+}
+
+func viewRoute(r scenario.RouteResult) routeView {
+	return routeView{Route: r.Route, Method: r.Method, Path: r.Path, Concurrency: r.Concurrency, N: r.N,
+		P50: scenario.Dur(r.P50), P95: scenario.Dur(r.P95), PerSecond: fmt.Sprintf("%.1f", r.PerSecond), Skipped: r.Skipped}
+}
+
+// comparedView is a route of the latest scan beside its previous figure.
+type comparedView struct {
+	routeView
+	Previous string // the previous scan's p95; "" when it has none
+	Change   string
+	Delta    string // the p95's move, e.g. +50%
+}
+
+func viewCompared(c scenario.Compared) comparedView {
+	v := comparedView{routeView: viewRoute(c.RouteResult), Change: string(c.Change)}
+	if c.Previous != nil {
+		v.Previous = scenario.Dur(c.Previous.P95)
+		v.Delta = fmt.Sprintf("%+.0f%%", (float64(c.P95)/float64(c.Previous.P95)-1)*100)
+	}
+	return v
+}
+
+// concernView is a critical route and why.
+type concernView struct {
+	routeView
+	Why string
+}
+
+// scanView is one scan as the pages show it: where, the workflow run's
+// state and steps, and every route worst first, each rung a row.
+type scanView struct {
+	RunID, Date, Environment, ServerType, Memory, Version, Customers, Ladder string
+	Samples                                                                  int
+	Scanned, NotScanned                                                      int
+	Run                                                                      *runView
+	Steps                                                                    []stepView
+	Routes                                                                   []routeView
+}
+
+func viewScan(r scenario.Run) scanView {
+	var ladder []string
+	for _, c := range r.Config.Ladder {
+		ladder = append(ladder, fmt.Sprint(c))
+	}
+	v := scanView{RunID: r.RunID, Date: r.CreatedAt.UTC().Format("2006-01-02"), Environment: r.Environment, ServerType: r.ServerType,
+		Memory: fmt.Sprintf("%g GB", r.MemoryGB), Version: r.Version, Customers: groupInt(int64(r.Config.Customers)), Ladder: strings.Join(ladder, ", "), Samples: r.Config.Samples}
+	rungs := map[string][]scenario.Probe{}
+	for _, p := range r.Probes {
+		rungs[p.Method+" "+p.Path] = append(rungs[p.Method+" "+p.Path], p)
+	}
+	for _, res := range scenario.Routes(r) {
+		if !res.Scanned() {
+			v.NotScanned++
+			v.Routes = append(v.Routes, viewRoute(res))
+			continue
+		}
+		v.Scanned++
+		for _, p := range rungs[res.Method+" "+res.Path] {
+			v.Routes = append(v.Routes, viewRoute(scenario.RouteResult{Route: p.Route, Method: p.Method, Path: p.Path, Concurrency: p.Concurrency, N: p.N, P50: p.P50, P95: p.P95, PerSecond: p.PerSecond}))
+		}
+	}
+	return v
+}
+
+// pointView is a route on one scan, in the trend table.
+type pointView struct {
+	RunID, P95, PerSecond, Skipped string
+}
+
+// trendView is a route across the scans, oldest first, one point per
+// scan column.
+type trendView struct {
+	Route, Method, Path string
+	Points              []pointView
+}
+
+// scansView is the scans page: the scans newest first, the latest
+// scan's ten worst routes against the previous scan, its critical
+// routes, and every route across the scans.
+type scansView struct {
+	Scans    []scanView
+	Latest   *scanView
+	Previous *scanView
+	Worst    []comparedView
+	Critical []concernView
+	Columns  []scanView // the scans oldest first, the trend's columns
+	Trend    []trendView
+	Budget   string
+}
+
+// scansOf lays out the scans page from the scan runs newest first.
+func (s *Server) scansOf(ctx context.Context, scans []scenario.Run) scansView {
+	v := scansView{Budget: scenario.Dur(Budget)}
+	for _, r := range scans {
+		sv := viewScan(r)
+		if rec, steps, err := s.op.Run(ctx, r.RunID); err == nil && rec != nil {
+			rv := viewRun(*rec)
+			sv.Run, sv.Steps = &rv, viewSteps(steps)
+		}
+		v.Scans = append(v.Scans, sv)
+	}
+	if len(scans) == 0 {
+		return v
+	}
+	latest := scans[0]
+	v.Latest = &v.Scans[0]
+	var previous *scenario.Run
+	if len(scans) > 1 {
+		previous = &scans[1]
+		v.Previous = &v.Scans[1]
+	}
+	for i, c := range scenario.Compare(latest, previous) {
+		if !c.Scanned() || i == 10 {
+			break
+		}
+		v.Worst = append(v.Worst, viewCompared(c))
+	}
+	for _, c := range scenario.Critical(latest, previous, Budget) {
+		v.Critical = append(v.Critical, concernView{viewRoute(c.RouteResult), c.Why})
+	}
+	for i := len(v.Scans) - 1; i >= 0; i-- {
+		v.Columns = append(v.Columns, v.Scans[i])
+	}
+	for _, tr := range scenario.Trend(scans) {
+		tv := trendView{Route: tr.Route, Method: tr.Method, Path: tr.Path}
+		// A cell per column: the point for that scan, or an empty one.
+		at := map[string]scenario.Point{}
+		for _, p := range tr.Points {
+			at[p.RunID] = p
+		}
+		for _, col := range v.Columns {
+			p, ok := at[col.RunID]
+			switch {
+			case !ok:
+				tv.Points = append(tv.Points, pointView{RunID: col.RunID})
+			case p.Skipped != "":
+				tv.Points = append(tv.Points, pointView{RunID: col.RunID, Skipped: p.Skipped})
+			default:
+				tv.Points = append(tv.Points, pointView{RunID: col.RunID, P95: scenario.Dur(p.P95), PerSecond: fmt.Sprintf("%.1f", p.PerSecond)})
+			}
+		}
+		v.Trend = append(v.Trend, tv)
+	}
+	return v
+}
+
+// scans is the scans page: every scan this host made, and what the
+// latest says against the previous and across time.
+func (s *Server) scans(w http.ResponseWriter, r *http.Request) {
+	list, err := s.op.Scenarios(r.Context(), 50)
+	v := s.scansOf(r.Context(), scenario.Scans(list))
+	s.render(w, "scans", map[string]any{"scans": v, "error": err})
+}
+
+// scan is one scan: where it ran, its run's state and steps, and every
+// route at its top rung worst first, the routes not scanned with why.
+func (s *Server) scan(w http.ResponseWriter, r *http.Request) {
+	run, err := s.op.Scenario(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if run == nil || !scenario.IsScan(*run) {
+		http.NotFound(w, r)
+		return
+	}
+	v := viewScan(*run)
+	if rec, steps, err := s.op.Run(r.Context(), run.RunID); err == nil && rec != nil {
+		rv := viewRun(*rec)
+		v.Run, v.Steps = &rv, viewSteps(steps)
+	}
+	s.render(w, "scan", map[string]any{"scan": v})
 }

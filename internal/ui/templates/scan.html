@@ -1,0 +1,27 @@
+{{template "head" .}}
+<body>
+  {{template "nav" .}}
+  <section class="section">
+    <div class="container">
+      {{with .scan}}
+      <nav class="breadcrumb is-small" aria-label="breadcrumbs"><ul>
+        <li><a href="/perf">Performance</a></li>
+        <li><a href="/perf/scans">Scans</a></li>
+        <li class="is-active"><a href="#" aria-current="page">{{.Date}} {{.Environment}}</a></li>
+      </ul></nav>
+      <h1 class="title is-4">Scan of {{.Environment}} on {{.Date}}</h1>
+      <p class="mb-2">gobank {{.Version}} on {{.ServerType}} ({{.Memory}}) with {{.Customers}} customers; ladder {{.Ladder}}, {{.Samples}} calls a rung.
+        {{.Scanned}} routes scanned, {{.NotScanned}} not. <a href="/workflows/{{.RunID}}">Workflow run</a>.</p>
+      {{with .Run}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
+      {{if .Steps}}{{template "steps" .Steps}}{{end}}
+      <h2 class="title is-5">Every route at each rung, worst route first</h2>
+      {{template "routes" .Routes}}
+      {{end}}
+    </div>
+  </section>
+</body>
+</html>
+{{define "routes"}}<table class="table is-narrow is-fullwidth is-size-7">
+        <thead><tr><th>Route</th><th>In flight</th><th>n</th><th>p50</th><th>p95</th><th>per s</th></tr></thead>
+        <tbody>{{range .}}<tr><td><code>{{.Method}} {{.Path}}</code></td>{{if .Skipped}}<td colspan="5" class="has-text-grey">not scanned: {{.Skipped}}</td>{{else}}<td>{{.Concurrency}}</td><td>{{.N}}</td><td>{{.P50}}</td><td>{{.P95}}</td><td>{{.PerSecond}}</td>{{end}}</tr>{{end}}</tbody>
+      </table>{{end}}

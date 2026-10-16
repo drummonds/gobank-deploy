@@ -16,6 +16,17 @@ func (f *fakeOperator) Scenarios(context.Context, int) ([]scenario.Run, error) {
 	return f.scenarios, nil
 }
 
+func (f *fakeOperator) Scenario(_ context.Context, id string) (*scenario.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.scenarios {
+		if r.RunID == id {
+			return &r, nil
+		}
+	}
+	return nil, nil
+}
+
 // The journal sits under About: the About page describes the scenario
 // workflow and links the journal, which shows every scenario run with its
 // workflow state and the page and index line to copy into the

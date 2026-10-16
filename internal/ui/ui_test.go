@@ -1153,3 +1153,91 @@ func TestRunPageLinksItsStepsInTheExplorerWhenConfigured(t *testing.T) {
 		t.Error("no explorer, no link")
 	}
 }
+
+// scanRun is a scan of prod with two routes driven up a ladder of 1 and
+// 4 and one not scanned, its p95 at the top rung as given.
+func scanRun(id string, day int, version string, dashP95, searchP95 time.Duration, skipped string) scenario.Run {
+	r := scenario.Run{RunID: id, Environment: "prod", ServerType: "cx33", MemoryGB: 8, Version: version, CreatedAt: time.Date(2026, 10, day, 9, 0, 0, 0, time.UTC),
+		Config: scenario.Config{Name: "scan", Ladder: []int{1, 4}, Samples: 10, Customers: 3000}}
+	for _, c := range []int{1, 4} {
+		r.Probes = append(r.Probes,
+			scenario.Probe{Route: "GET /", Method: "GET", Path: "/", Concurrency: c, N: 10, P50: dashP95 / 2, P95: dashP95 * time.Duration(c) / 4, PerSecond: float64(100 / c)},
+			scenario.Probe{Route: "POST /customers/search", Method: "POST", Path: "/customers/search", Concurrency: c, N: 10, P50: searchP95 / 2, P95: searchP95 * time.Duration(c) / 4, PerSecond: float64(50 / c)})
+	}
+	if skipped != "" {
+		r.Probes = append(r.Probes, scenario.Probe{Route: "GET /about", Method: "GET", Path: "/about", Skipped: skipped})
+	}
+	return r
+}
+
+func TestScansPageIsTheScansWithTheWorstTheCriticalAndTheTrend(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/perf/scans")
+	if !strings.Contains(body, "No scans yet") {
+		t.Errorf("empty:\n%s", body)
+	}
+	op.mu.Lock()
+	op.scenarios = []scenario.Run{
+		scanRun("scan-2", 2, "v0.54.0", 100*time.Millisecond, 600*time.Millisecond, "failed: 500 Internal Server Error"),
+		scanRun("scan-1", 1, "v0.53.0", 100*time.Millisecond, 400*time.Millisecond, ""),
+		{RunID: "seven", Environment: "x", Config: scenario.Config{Name: "seven-years"}, CreatedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/perf/scans")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`href="/perf/scans/scan-2"`, `href="/perf/scans/scan-1"`, "2026-10-02", "v0.54.0", "cx33", "3,000",
+		// the ten worst, from the latest scan, with the move since the previous
+		"600ms", "worse", "&#43;50%",
+		// the critical routes
+		"over the 500ms budget", "failed: 500 Internal Server Error",
+		// the trend: a column per scan, a row per route
+		"400ms", "v0.53.0",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scans page missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "seven-years") {
+		t.Errorf("a scenario is not a scan:\n%s", body)
+	}
+}
+
+func TestScanPageIsOneScanWithEveryRouteWorstFirst(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.scenarios = []scenario.Run{scanRun("scan-2", 2, "v0.54.0", 100*time.Millisecond, 600*time.Millisecond, "needs a path parameter")}
+	op.runs = []wf.RunRecord{{ID: "scan-2", WorkflowType: "scan", Key: "prod 2026-10-02", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	code, body := get(t, ts, "/perf/scans/scan-2")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{"prod", "cx33", "8 GB", "v0.54.0", "3,000", "1, 4", `href="/workflows/scan-2"`,
+		"/customers/search", "600ms", "300ms", "12.0", "150ms", "needs a path parameter"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scan page missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "/customers/search") > strings.Index(body, "GET /</") {
+		t.Errorf("worst first:\n%s", body)
+	}
+	if code, _ := get(t, ts, "/perf/scans/nope"); code != 404 {
+		t.Errorf("unknown scan: %d", code)
+	}
+}
+
+func TestRunAndJournalPagesLinkToTheScan(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.scenarios = []scenario.Run{scanRun("scan-2", 2, "v0.54.0", 100*time.Millisecond, 600*time.Millisecond, "")}
+	op.runs = []wf.RunRecord{{ID: "scan-2", WorkflowType: "scan", Key: "prod 2026-10-02", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	for _, path := range []string{"/workflows/scan-2", "/about/journal", "/perf"} {
+		if _, body := get(t, ts, path); !strings.Contains(body, `href="/perf/scans/scan-2"`) && !strings.Contains(body, `href="/perf/scans"`) {
+			t.Errorf("%s does not reach the scan:\n%s", path, body)
+		}
+	}
+}

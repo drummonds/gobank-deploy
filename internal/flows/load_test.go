@@ -27,10 +27,10 @@ type loadOps struct {
 	fail     error
 }
 
-func (o *loadOps) Loader(_ context.Context, env deploy.Environment, expires time.Time, _ io.Writer) error {
+func (o *loadOps) Loader(_ context.Context, env deploy.Environment, location string, expires time.Time, _ io.Writer) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.loaders = append(o.loaders, env.Name+"@"+expires.Format(time.RFC3339))
+	o.loaders = append(o.loaders, env.Name+" in "+location+"@"+expires.Format(time.RFC3339))
 	o.servers[env.Name] = &deploy.Server{Name: "gobank-" + env.Name, IP: "10.0.0.10", PrivateIP: "10.128.1.3", Type: "cx23"}
 	return nil
 }
@@ -80,7 +80,7 @@ func TestLoadCreatesFillsLoadsRecordsAndRemoves(t *testing.T) {
 	if len(h.ops.ups) != 1 || !h.ops.ups[0].Create || h.ops.ups[0].Scale != "large" || !h.ops.ups[0].Expires.Equal(expiry) {
 		t.Errorf("ups = %+v; want the target created at large with an expiry", h.ops.ups)
 	}
-	if !slices.Equal(h.ops.loaders, []string{"load1-loader@" + expiry.Format(time.RFC3339)}) {
+	if !slices.Equal(h.ops.loaders, []string{"load1-loader in nbg1@" + expiry.Format(time.RFC3339)}) {
 		t.Errorf("loaders = %v", h.ops.loaders)
 	}
 	if !slices.Equal(h.ops.journeys, []string{"load1-loader -> gobank-load1"}) {

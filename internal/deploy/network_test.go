@@ -107,7 +107,7 @@ func TestLoaderIsABoxOnTheNetworkWithThisProgramOnIt(t *testing.T) {
 	h.d.Admit = home
 	h.d.Self, h.d.SelfArch = "/usr/bin/gobank-deploy", "arm64"
 	env := Environment{Name: "load1-loader"}
-	srv, err := h.d.Loader(context.Background(), env, noon)
+	srv, err := h.d.Loader(context.Background(), env, "hel1", noon)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestLoaderIsABoxOnTheNetworkWithThisProgramOnIt(t *testing.T) {
 
 	h.d.SelfArch = "amd64"
 	h.cloud.servers = map[string]*Server{}
-	if _, err := h.d.Loader(context.Background(), Environment{Name: "load2-loader"}, noon); err != nil {
+	if _, err := h.d.Loader(context.Background(), Environment{Name: "load2-loader"}, "hel1", noon); err != nil {
 		t.Fatal(err)
 	}
 	if h.cloud.created[1].Type != "cx23" {
@@ -181,4 +181,36 @@ func TestALoadersStatusIsNotProbed(t *testing.T) {
 
 func equalRule(a, b FirewallRule) bool {
 	return a.Description == b.Description && a.Protocol == b.Protocol && a.Port == b.Port && slices.Equal(a.Sources, b.Sources)
+}
+
+// A loader goes in the target's location, so the load crosses no more
+// network than a data centre's: fsn1 to hel1 would add tens of
+// milliseconds to every screen. Where that location has no capacity the
+// others are tried, and the log says the figures carry the distance.
+func TestLoaderGoesInTheTargetsLocation(t *testing.T) {
+	h := newHarness()
+	h.d.Self, h.d.SelfArch = "/usr/bin/gobank-deploy", "amd64"
+	if _, err := h.d.Loader(context.Background(), Environment{Name: "load1-loader"}, "nbg1", noon); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.cloud.created) != 1 || h.cloud.created[0].Location != "nbg1" {
+		t.Errorf("created = %+v; want the loader in nbg1 at once", h.cloud.created)
+	}
+
+	h = newHarness()
+	h.d.Self, h.d.SelfArch = "/usr/bin/gobank-deploy", "amd64"
+	h.cloud.full["nbg1"] = true
+	if _, err := h.d.Loader(context.Background(), Environment{Name: "load1-loader"}, "nbg1", noon); err != nil {
+		t.Fatal(err)
+	}
+	var tried []string
+	for _, c := range h.cloud.created {
+		tried = append(tried, c.Location)
+	}
+	if !slices.Equal(tried, []string{"nbg1", "fsn1"}) {
+		t.Errorf("tried %v; want nbg1, then the first other location", tried)
+	}
+	if !strings.Contains(h.out.String(), "loader in fsn1, target in nbg1") {
+		t.Errorf("the log should say the loader is away from the target:\n%s", h.out.String())
+	}
 }

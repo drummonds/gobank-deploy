@@ -46,7 +46,7 @@ func (o *perfOps) Up(_ context.Context, opts deploy.UpOptions, out io.Writer) er
 	defer o.mu.Unlock()
 	o.ups = append(o.ups, opts)
 	typ, _ := deploy.ServerType(opts.Scale)
-	o.servers[opts.Env.Name] = &deploy.Server{Name: "gobank-" + opts.Env.Name, IP: "10.0.0.9", Type: typ, MemoryGB: 32}
+	o.servers[opts.Env.Name] = &deploy.Server{Name: "gobank-" + opts.Env.Name, IP: "10.0.0.9", Type: typ, MemoryGB: 32, Location: "nbg1"}
 	fmt.Fprintln(out, "deployed")
 	return nil
 }

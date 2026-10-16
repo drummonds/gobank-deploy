@@ -238,7 +238,7 @@ link to it.
 `tp secrets gobank-deploy load <env> -scale large` load tests a fresh
 environment: `create` (the target at the scale, with an expiry), `add`
 (the demo stopped, its books filled to `-customers 10000`), `loader` (a
-box `<env>-loader` on the private network, ssh from `-admit` only, this
+box `<env>-loader` in the target's location on the private network, ssh from `-admit` only, this
 program's own executable copied onto it — so it is arm64 from hydrogen and
 amd64 from the laptop), `load` (from the loader against the target's
 private address: the customer journey — login, the accounts screen, one

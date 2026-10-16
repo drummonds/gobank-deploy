@@ -184,8 +184,8 @@ func (f DeployerFactory) Down(ctx context.Context, env deploy.Environment, out i
 	return f(out).Down(ctx, env)
 }
 
-func (f DeployerFactory) Loader(ctx context.Context, env deploy.Environment, expires time.Time, out io.Writer) error {
-	_, err := f(out).Loader(ctx, env, expires)
+func (f DeployerFactory) Loader(ctx context.Context, env deploy.Environment, location string, expires time.Time, out io.Writer) error {
+	_, err := f(out).Loader(ctx, env, location, expires)
 	return err
 }
 

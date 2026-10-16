@@ -75,6 +75,7 @@ with `-admit` empty they are anywhere, as before):
 | network | `gobank`, 10.128.0.0/16 | one for the project: every box can reach every other privately; in the upper half of 10/8, clear of home's 10.0 and 10.1 LANs, so a VPN or route between them later cannot clash |
 | subnet | 10.128.1.0/24, cloud | the servers' addresses; a /24 holds far more boxes than run at once |
 | zone | eu-central | holds fsn1, nbg1 and hel1, every location `up` tries |
+| loader location | the target's | the load crosses one data centre's network, not fsn1 to hel1; another location only when the target's has no capacity, and the log says so |
 | loader type | cax11 (arm64) or cx23 (amd64) | the smallest box of this host's architecture: the loader runs this program's own executable, copied over |
 
 ## What `up` does

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,8 +35,10 @@ func loaderType(goarch string) string {
 // Loader creates the environment's server as a loader for a load test: on
 // the private network, ssh from the admitted ranges and nothing else, no
 // PostgreSQL or demo, this program installed on it, and an expiry so a
-// run that dies does not leave it billing.
-func (d *Deployer) Loader(ctx context.Context, env Environment, expires time.Time) (*Server, error) {
+// run that dies does not leave it billing. It goes in location, the
+// target's, so the load crosses only a data centre's network; where that
+// has no capacity the other locations are tried and the log says so.
+func (d *Deployer) Loader(ctx context.Context, env Environment, location string, expires time.Time) (*Server, error) {
 	name := env.ServerName()
 	if err := d.network(ctx); err != nil {
 		return nil, err
@@ -66,11 +69,18 @@ func (d *Deployer) Loader(ctx context.Context, env Environment, expires time.Tim
 		if !expires.IsZero() {
 			l[expiresLabel] = expires.UTC().Format(expiresLayout)
 		}
-		if srv, err = d.place(ctx, CreateSpec{Name: name, Type: loaderType(arch), Firewall: name, Network: PrivateNetwork.Name, Labels: l}); err != nil {
+		locations := d.locations()
+		if location != "" {
+			locations = append([]string{location}, slices.DeleteFunc(slices.Clone(locations), func(l string) bool { return l == location })...)
+		}
+		if srv, err = d.place(ctx, CreateSpec{Name: name, Type: loaderType(arch), Firewall: name, Network: PrivateNetwork.Name, Labels: l}, locations); err != nil {
 			return nil, err
 		}
 	} else if err := d.attach(ctx, srv); err != nil {
 		return nil, err
+	}
+	if location != "" && srv.Location != location {
+		d.printf("NOTE loader in %s, target in %s: every screen's time carries the distance between them\n", srv.Location, location)
 	}
 	d.printf("== wait for ssh (%s)\n", srv.IP)
 	host, err := d.waitSSH(ctx, srv.IP, fresh)

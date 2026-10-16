@@ -681,14 +681,22 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPa
 		Network:  PrivateNetwork.Name,
 		UserData: cloudInit,
 		Labels:   labels(o, appPassword, adminPassword, apiToken),
-	})
+	}, d.locations())
+}
+
+// locations are where servers are tried, in order.
+func (d *Deployer) locations() []string {
+	if len(d.Locations) > 0 {
+		return d.Locations
+	}
+	return defaultLocations
 }
 
 // place creates the server the spec describes, its image, location and
-// keys filled in: every location for the type asked for, then the next
-// size down at every location again. A smaller box beats no box, and the
-// server's actual type is what is recorded.
-func (d *Deployer) place(ctx context.Context, spec CreateSpec) (*Server, error) {
+// keys filled in: every one of locations, in order, for the type asked
+// for, then the next size down at every location again. A smaller box
+// beats no box, and the server's actual type is what is recorded.
+func (d *Deployer) place(ctx context.Context, spec CreateSpec, locations []string) (*Server, error) {
 	keys, err := d.Cloud.SSHKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list ssh keys: %w", err)
@@ -700,10 +708,6 @@ func (d *Deployer) place(ctx context.Context, spec CreateSpec) (*Server, error) 
 	spec.Image = d.Image
 	if spec.Image == "" {
 		spec.Image = defaultImage
-	}
-	locations := d.Locations
-	if len(locations) == 0 {
-		locations = defaultLocations
 	}
 	for {
 		var err error

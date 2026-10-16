@@ -30,7 +30,7 @@ var LoadDefinition = wf.Definition{
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create the target at the scale with an expiry of twice the ceiling and an hour; record where the test is: server type, RAM, gobank version. Undone by remove when a later stage fails", Source: loadSrc},
 		{Name: "add", Description: "the demo stopped and set flat out; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached — the journeys' customers", Source: loadSrc},
-		{Name: "loader", Description: "a box <env>-loader on the private network: ssh from home only, this program copied onto it, the same expiry", Source: loadSrc},
+		{Name: "loader", Description: "a box <env>-loader in the target's location (another only when that has no capacity, and the log says so), on the private network: ssh from home only, this program copied onto it, the same expiry", Source: loadSrc},
 		{Name: "load", Description: "from the loader, against the target's private address: the ladder of users (1, 2, 5, 10, 20, 50, 100, 200, 500), each walking the journey 10 times, stopped at the first rung whose p95 on a screen is over 2s or where a journey failed", Source: loadSrc},
 		{Name: "remove", Description: "down the loader and the target: servers, firewalls and hostname", Source: loadSrc},
 	},
@@ -42,7 +42,8 @@ func init() { wf.Definitions = append(wf.Definitions, LoadDefinition) }
 // status, up and down, and the loader.
 type LoadOps interface {
 	Ops
-	Loader(ctx context.Context, env deploy.Environment, expires time.Time, out io.Writer) error
+	// Loader makes env's loader in location, the target's.
+	Loader(ctx context.Context, env deploy.Environment, location string, expires time.Time, out io.Writer) error
 	Journey(ctx context.Context, loader deploy.Environment, target *deploy.Server, o deploy.JourneyOptions, out io.Writer) (load.Result, error)
 }
 
@@ -182,15 +183,23 @@ func (r *loadRun) add(ctx context.Context) error {
 	return r.l.Loads.Update(ctx, *rec)
 }
 
-// makeLoader makes the loader with the target's expiry, so the two are
-// reaped together.
+// makeLoader makes the loader in the target's location, so the load
+// crosses only a data centre's network, and with the target's expiry, so
+// the two are reaped together.
 func (r *loadRun) makeLoader(ctx context.Context) error {
 	fmt.Fprintf(r.out, "== loader %s\n", r.loader.Name)
 	rec, err := r.recorded(ctx)
 	if err != nil {
 		return err
 	}
-	return r.l.Ops.Loader(ctx, r.loader, rec.CreatedAt.Add(r.p.expiry()), r.out)
+	st, err := r.l.Ops.Status(ctx, r.env)
+	if err != nil {
+		return err
+	}
+	if st.Server == nil {
+		return fmt.Errorf("%s has no server", r.env.Name)
+	}
+	return r.l.Ops.Loader(ctx, r.loader, st.Server.Location, rec.CreatedAt.Add(r.p.expiry()), r.out)
 }
 
 func (r *loadRun) load(ctx context.Context) error {

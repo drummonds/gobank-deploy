@@ -75,6 +75,11 @@
                   <small class="has-text-grey">starts billing</small>
                 </form>
               {{end}}
+              {{if .Forget}}
+                <form method="post" action="/env/{{.Name}}/forget" hx-post="/env/{{.Name}}/forget" class="mt-2">
+                  <button class="button is-small is-light" title="drop this row; its runs stay on their pages">Forget</button>
+                </form>
+              {{end}}
             </td>
           </tr>
         {{end}}

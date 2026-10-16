@@ -33,8 +33,10 @@ tp secrets task ui ENVS=prod,preprod     # rows always shown, even when not prov
 The rows are the `-envs` names (default `prod,preprod,demo`) plus every
 `gobank-*` server that exists in the Hetzner project, whoever created it.
 A form on the page creates a further environment by name; it stays listed
-while its server exists. So `-envs` is only the standing environments
-worth a "Not provisioned" row.
+while its server exists or its last job is on the page. Once a run has
+finished and its server has gone, Forget drops the row; the run's records
+stay. So `-envs` is only the standing environments worth a "Not
+provisioned" row.
 
 On a host that cannot build `cmd/demo` (no Go toolchain or no gobank
 checkout at `-src`), the page deploys from a release store filled from the

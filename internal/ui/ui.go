@@ -258,6 +258,7 @@ type envView struct {
 	Job     *jobView
 	Removed string // when a temporary environment goes, local time; "" for a standing one
 	DrillTo string // the release a drill would upgrade to; "" when none is offered
+	Forget  bool   // the row can be dropped: finished with, see forgettable
 }
 
 // drillTarget is the release gobank's upgrade drill would take st to: the
@@ -476,6 +477,7 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("POST /env/{env}/down", s.action("down"))
 	s.mux.HandleFunc("POST /env/{env}/drill", s.action("drill"))
 	s.mux.HandleFunc("POST /env/{env}/cancel", s.cancel)
+	s.mux.HandleFunc("POST /env/{env}/forget", s.forget)
 	s.mux.HandleFunc("POST /fetch", s.fetch)
 	s.mux.HandleFunc("GET /drills", s.drills)
 	s.mux.HandleFunc("POST /perf", s.perf)
@@ -564,6 +566,7 @@ func (s *Server) pageData(ctx context.Context) map[string]any {
 				refresh = refreshWorking
 			}
 		}
+		v.Forget = s.forgettable(e.Name, v.Status, v.Error, v.Job) == nil
 		views = append(views, v)
 	}
 	var runs []runView
@@ -859,6 +862,50 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if j != nil {
 		j.cancel()
+	}
+	s.done(w, r)
+}
+
+// forgettable says why the row for name must stay, or nil when it can be
+// forgotten: a configured environment is always listed, a server is still
+// billing (or may be, when its status cannot be read), a running job is
+// still at work. What is left is a finished job keeping the row.
+func (s *Server) forgettable(name string, st deploy.Status, statusErr error, j *jobView) error {
+	switch {
+	case slices.ContainsFunc(s.envs, func(e deploy.Environment) bool { return e.Name == name }):
+		return errors.New("a configured environment, always listed")
+	case statusErr != nil:
+		return fmt.Errorf("status unknown: %w", statusErr)
+	case st.Server != nil:
+		return errors.New("its server exists; Down removes it")
+	case j != nil && j.Running:
+		return errors.New("its job is running")
+	}
+	return nil
+}
+
+// forget drops a finished environment from the page: its job goes, so
+// with no server it is no longer listed. Its runs' records stay.
+func (s *Server) forget(w http.ResponseWriter, r *http.Request) {
+	env, ok := s.environment(r.Context(), r.PathValue("env"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	st, err := s.op.Status(r.Context(), env)
+	s.mu.Lock()
+	var jv *jobView
+	if j := s.jobs[env.Name]; j != nil {
+		jv = j.view()
+	}
+	why := s.forgettable(env.Name, st, err, jv)
+	if why == nil {
+		delete(s.jobs, env.Name)
+	}
+	s.mu.Unlock()
+	if why != nil {
+		s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: not forgotten: %v", env.Name, why))
+		return
 	}
 	s.done(w, r)
 }

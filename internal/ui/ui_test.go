@@ -448,6 +448,52 @@ func TestDownRequiresConfirmation(t *testing.T) {
 	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.downs) == 1 })
 }
 
+// A finished run's row is forgotten on request once its server has gone:
+// not while its job runs, not while it has a server, never a configured
+// environment, which is always listed.
+func TestForgetDropsAFinishedEnvironmentFromThePage(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.statuses["kept"] = deploy.Status{Server: &deploy.Server{Name: "gobank-kept", Status: "running"}}
+	post(t, ts, "/perf", url.Values{"name": {"perf1"}, "scale": {"small"}})
+	waitFor(t, func() bool { op.mu.Lock(); defer op.mu.Unlock(); return len(op.perfs) == 1 })
+	_, body := get(t, ts, "/")
+	if strings.Contains(body, `action="/env/perf1/forget"`) {
+		t.Error("a running job's row should not offer Forget")
+	}
+	if code := post(t, ts, "/env/perf1/forget", nil); code != http.StatusConflict {
+		t.Errorf("forget while running: status %d, want 409", code)
+	}
+	close(op.release)
+	waitFor(t, func() bool { _, body := get(t, ts, "/"); return strings.Contains(body, "Finished: perf") })
+
+	_, body = get(t, ts, "/")
+	if !strings.Contains(body, `action="/env/perf1/forget"`) {
+		t.Errorf("a finished run with no server should offer Forget:\n%s", body)
+	}
+	for _, name := range []string{"preprod", "kept"} {
+		if strings.Contains(body, `action="/env/`+name+`/forget"`) {
+			t.Errorf("%s should not offer Forget", name)
+		}
+		if code := post(t, ts, "/env/"+name+"/forget", nil); code != http.StatusConflict {
+			t.Errorf("forget %s: status %d, want 409", name, code)
+		}
+	}
+	if code := post(t, ts, "/env/nosuch/forget", nil); code != http.StatusNotFound {
+		t.Errorf("forget an unknown environment: status %d, want 404", code)
+	}
+
+	if code := post(t, ts, "/env/perf1/forget", nil); code != http.StatusSeeOther {
+		t.Errorf("forget: status %d, want 303", code)
+	}
+	_, body = get(t, ts, "/")
+	if strings.Contains(body, ">perf1<") {
+		t.Errorf("a forgotten environment should be gone from the page:\n%s", body)
+	}
+	if !strings.Contains(body, ">preprod<") || !strings.Contains(body, ">kept<") {
+		t.Error("the other rows stay")
+	}
+}
+
 func TestCancelStopsARunningJob(t *testing.T) {
 	ts, op := newTestServer(t)
 	post(t, ts, "/env/prod/redeploy", nil)

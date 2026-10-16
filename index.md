@@ -176,6 +176,7 @@ instance as d2 with the steps coloured by state.
 | Server | Answers | Version vs available | State on the page | Offered |
 |--------|---------|----------------------|-------------------|---------|
 | none | – | – | Not provisioned, no billing | Create (scale, keep or remove after) |
+| none, not an `-envs` name, a finished job | – | – | Finished: *job*, not provisioned | Create, Forget (drops the row; its runs stay) |
 | exists | no | – | Not answering, booting? | Redeploy, Down |
 | exists | yes | same | Serving, current | Redeploy, Down |
 | exists | yes | different | Serving, *vX available* | Redeploy, Down |

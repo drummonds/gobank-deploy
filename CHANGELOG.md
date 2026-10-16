@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-16
+
+ - Load test: the customer journey from a loader box over a private network, capacity at p95 2s a screen; firewalls admit home only (#26)
+
 ### Added
 - The load test (#26): the customer journey — login, the accounts screen,
   one account's screen — defined as data and walked from a loader box

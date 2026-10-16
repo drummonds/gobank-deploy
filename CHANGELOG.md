@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-16
+
+ - Scans readable: a page per scan, the latest against the previous, ten worst, critical and the trend (#33)
+
 ### Added
 - The scans readable (#33): **Scans** under Performance (`/perf/scans`)
   lists every scan and reads the latest against the one before — the

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-16
+
+ - Perf runs keep per-route counts and p95; routes over versions chart by scale (#35)
+
 ### Added
 - A performance run keeps gobank's per-route figures (#35): a new
   `routes` stage, the last before `remove`, reads every route the demo

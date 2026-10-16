@@ -13,7 +13,7 @@
     <div class="navbar-brand">
       <a class="navbar-item has-text-weight-bold" href="/">gobank environments</a>
       <a class="navbar-item{{if eq .page "drills"}} is-active{{end}}" href="/drills">Drills</a>
-      <a class="navbar-item{{if or (eq .page "perf") (eq .page "scans") (eq .page "scan")}} is-active{{end}}" href="/perf">Performance</a>
+      <a class="navbar-item{{if or (eq .page "perf") (eq .page "routes") (eq .page "scans") (eq .page "scan")}} is-active{{end}}" href="/perf">Performance</a>
       <a class="navbar-item{{if or (eq .page "workflows") (eq .page "run")}} is-active{{end}}" href="/workflows">Workflows</a>
       {{if .explorer}}<a class="navbar-item{{if eq .page "explorer"}} is-active{{end}}" href="/internal/explorer">DB Explorer</a>{{end}}
       <a class="navbar-item{{if or (eq .page "about") (eq .page "journal")}} is-active{{end}}" href="/about">About</a>

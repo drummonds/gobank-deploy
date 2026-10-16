@@ -9,6 +9,7 @@ package perf
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -40,6 +41,19 @@ type Run struct {
 	AccountDaysPer12h int64
 	LastDay           time.Duration
 	LastDayAccounts   int
+
+	// What the demo measured of every route it served over the run, read
+	// off about.json just before the server is removed (gobank v0.51.0
+	// onwards; none before).
+	Routes []Route
+}
+
+// Route is one route's figures as the demo measured them since its
+// process started: how many requests, and the p95 of the latest 1,024.
+type Route struct {
+	Pattern string // as gobank registered it: "GET /v1/health", "/customers/"
+	Count   int64
+	P95     time.Duration
 }
 
 // MigrationsTable is where this component records its schema versions.
@@ -67,6 +81,16 @@ CREATE TABLE IF NOT EXISTS perf_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_perf_runs_created ON perf_runs(created_at);
 `},
+	{Version: 2, Name: "the routes' figures", Phase: db.Expand, SQL: `
+ALTER TABLE perf_runs ADD COLUMN IF NOT EXISTS routes TEXT NOT NULL DEFAULT '[]';
+`},
+}
+
+// route is a Route as the routes column holds it, the p95 in nanoseconds.
+type route struct {
+	Pattern string `json:"pattern"`
+	Count   int64  `json:"count"`
+	P95     int64  `json:"p95_ns"`
 }
 
 // Store keeps performance runs in a database shared with the workflow
@@ -91,10 +115,18 @@ func (s *Store) Create(ctx context.Context, r Run) error {
 
 // Update writes the run's figures as a stage completes them.
 func (s *Store) Update(ctx context.Context, r Run) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE perf_runs SET add_span_ns = $1, customers = $2, customers_per_sec = $3,
-		days_span_ns = $4, days = $5, account_days_per_12h = $6, last_day_ns = $7, last_day_accounts = $8
-		WHERE run_id = $9`,
-		int64(r.AddSpan), r.Customers, r.CustomersPerSec, int64(r.DaysSpan), r.Days, r.AccountDaysPer12h, int64(r.LastDay), r.LastDayAccounts, r.RunID)
+	routes := make([]route, len(r.Routes))
+	for i, rt := range r.Routes {
+		routes[i] = route{rt.Pattern, rt.Count, int64(rt.P95)}
+	}
+	js, err := json.Marshal(routes)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE perf_runs SET add_span_ns = $1, customers = $2, customers_per_sec = $3,
+		days_span_ns = $4, days = $5, account_days_per_12h = $6, last_day_ns = $7, last_day_accounts = $8, routes = $9
+		WHERE run_id = $10`,
+		int64(r.AddSpan), r.Customers, r.CustomersPerSec, int64(r.DaysSpan), r.Days, r.AccountDaysPer12h, int64(r.LastDay), r.LastDayAccounts, string(js), r.RunID)
 	return err
 }
 
@@ -113,7 +145,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]Run, error) {
 }
 
 const selectRuns = `SELECT run_id, environment, scale, server_type, memory_gb, version, created_at,
-	add_span_ns, customers, customers_per_sec, days_span_ns, days, account_days_per_12h, last_day_ns, last_day_accounts FROM perf_runs`
+	add_span_ns, customers, customers_per_sec, days_span_ns, days, account_days_per_12h, last_day_ns, last_day_accounts, routes FROM perf_runs`
 
 func (s *Store) query(ctx context.Context, q string, args ...any) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -125,9 +157,17 @@ func (s *Store) query(ctx context.Context, q string, args ...any) ([]Run, error)
 	for rows.Next() {
 		var r Run
 		var addSpan, daysSpan, lastDay int64
+		var js string
 		if err := rows.Scan(&r.RunID, &r.Environment, &r.Scale, &r.ServerType, &r.MemoryGB, &r.Version, &r.CreatedAt,
-			&addSpan, &r.Customers, &r.CustomersPerSec, &daysSpan, &r.Days, &r.AccountDaysPer12h, &lastDay, &r.LastDayAccounts); err != nil {
+			&addSpan, &r.Customers, &r.CustomersPerSec, &daysSpan, &r.Days, &r.AccountDaysPer12h, &lastDay, &r.LastDayAccounts, &js); err != nil {
 			return nil, err
+		}
+		var routes []route
+		if err := json.Unmarshal([]byte(js), &routes); err != nil {
+			return nil, fmt.Errorf("perf run %s routes: %w", r.RunID, err)
+		}
+		for _, rt := range routes {
+			r.Routes = append(r.Routes, Route{rt.Pattern, rt.Count, time.Duration(rt.P95)})
 		}
 		r.AddSpan, r.DaysSpan, r.LastDay = time.Duration(addSpan), time.Duration(daysSpan), time.Duration(lastDay)
 		r.CreatedAt = r.CreatedAt.UTC()

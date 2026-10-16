@@ -3,6 +3,7 @@ package perf
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"testing"
 	"time"
 
@@ -42,7 +43,7 @@ func TestRunIsRecordedThenFilledInByStage(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("get: %v %v", got, err)
 	}
-	if *got != first {
+	if !reflect.DeepEqual(*got, first) {
 		t.Errorf("fresh run = %+v, want %+v", *got, first)
 	}
 
@@ -50,6 +51,7 @@ func TestRunIsRecordedThenFilledInByStage(t *testing.T) {
 	if err := s.Update(ctx, first); err != nil {
 		t.Fatal(err)
 	}
+	first.Routes = []Route{{Pattern: "GET /v1/health", Count: 12, P95: 2500 * time.Microsecond}, {Pattern: "/customers/", Count: 3, P95: 40 * time.Millisecond}}
 	first.DaysSpan, first.Days, first.AccountDaysPer12h, first.LastDay, first.LastDayAccounts = 10*time.Minute, 7, 9_000_000, 85*time.Second, 96000
 	if err := s.Update(ctx, first); err != nil {
 		t.Fatal(err)
@@ -58,7 +60,7 @@ func TestRunIsRecordedThenFilledInByStage(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("get: %v %v", got, err)
 	}
-	if *got != first {
+	if !reflect.DeepEqual(*got, first) {
 		t.Errorf("filled run = %+v, want %+v", *got, first)
 	}
 

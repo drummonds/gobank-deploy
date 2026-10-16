@@ -14,6 +14,7 @@ import (
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/drills"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 )
 
 // Console is the demo's simulation console over HTTP: about.json for what
@@ -57,6 +58,11 @@ type about struct {
 		Downtime        string `json:"downtime"`
 		Intact          *bool  `json:"intact"`
 	} `json:"restarts"`
+	Routes []struct {
+		Pattern string `json:"pattern"`
+		Count   int64  `json:"count"`
+		P95     string `json:"p95"`
+	} `json:"routes"`
 }
 
 func (c *Console) client() *http.Client {
@@ -115,6 +121,10 @@ func (c *Console) Read(ctx context.Context, base string) (drills.Reading, error)
 			}
 		}
 		rd.Restart = rs
+	}
+	for _, rt := range a.Routes {
+		p95, _ := time.ParseDuration(rt.P95)
+		rd.Routes = append(rd.Routes, perf.Route{Pattern: rt.Pattern, Count: rt.Count, P95: p95})
 	}
 	return rd, nil
 }

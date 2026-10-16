@@ -35,6 +35,7 @@ var PerfDefinition = wf.Definition{
 		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
 		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
 		{Name: "days", Description: "Run until the bank's day is the years on (7) or the ceiling (6h) is reached, then Stop; read account days per 12h and the last day it is made of", Source: perfSrc},
+		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95, read off about.json (gobank v0.51.0 onwards; none before)", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
 	},
 }
@@ -153,6 +154,7 @@ func (p *Perf) run(ctx context.Context, env deploy.Environment, scale, key strin
 		{Name: "create", Run: run.create, Undo: remove},
 		{Name: "add", Run: run.add},
 		{Name: "days", Run: run.days},
+		{Name: "routes", Run: run.routes},
 		{Name: "remove", Run: remove},
 	}
 	rec, err := wf.NewRunner(p.Store, nil).RunPipeline(ctx, WorkflowPerf, key, wf.BusinessDateFrom(p.now()), stages)
@@ -428,6 +430,27 @@ func (r *perfRun) days(ctx context.Context) error {
 	rec.LastDay, rec.LastDayAccounts = rd.LastDayDuration, rd.LastDayAccounts
 	fmt.Fprintf(r.out, "%d days from %s to %s in %s: %d account days per 12h; last day %s over %d accounts%s\n",
 		rec.Days, fromDay, rd.Position.Day, took, rec.AccountDaysPer12h, rec.LastDay.Round(time.Second), rec.LastDayAccounts, stoppedBy(rd.Position.Day < target, target, ""))
+	return r.p.Perfs.Update(ctx, *rec)
+}
+
+// routes records what the demo measured of every route it served over
+// the run: the last reading before the server goes, and with it the
+// figures, which live only in the demo's process.
+func (r *perfRun) routes(ctx context.Context) error {
+	fmt.Fprintln(r.out, "== routes")
+	rec, err := r.record(ctx)
+	if err != nil {
+		return err
+	}
+	if rec == nil {
+		return errors.New("the run was not recorded at create")
+	}
+	_, rd, err := r.read(ctx)
+	if err != nil {
+		return err
+	}
+	rec.Routes = rd.Routes
+	fmt.Fprintf(r.out, "%d routes measured\n", len(rec.Routes))
 	return r.p.Perfs.Update(ctx, *rec)
 }
 

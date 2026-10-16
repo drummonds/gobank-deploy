@@ -9,6 +9,7 @@
         the two rates read off <code>/about.json</code> — customers added per second (the demo's own rate, batch by batch) and
         account days per 12h (the start-of-day pass's rate over the whole day) — then the server removed.
         The row under each run is the line for <code>benchmark.md</code>.
+        Before the server goes the run also records every route the demo served, its count and p95: <a href="/perf/routes">the routes over versions</a>.
         The <a href="/perf/scans">scans</a> are the other measure: every route of an environment as it stands, up the concurrency ladder.</p>
       {{if .error}}<p class="has-text-danger">{{.error}}</p>{{end}}
       {{if not .perfs}}<p class="has-text-grey">No performance runs yet. Start one from the environments page: a fresh name and a scale.</p>{{end}}

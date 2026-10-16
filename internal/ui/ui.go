@@ -432,7 +432,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/routes.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -452,6 +452,7 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("GET /drills", s.drills)
 	s.mux.HandleFunc("POST /perf", s.perf)
 	s.mux.HandleFunc("GET /perf", s.perfs)
+	s.mux.HandleFunc("GET /perf/routes", s.perfRoutes)
 	s.mux.HandleFunc("GET /perf/scans", s.scans)
 	s.mux.HandleFunc("GET /perf/scans/{id}", s.scan)
 	s.mux.HandleFunc("GET /workflows", s.workflows)
@@ -893,10 +894,11 @@ type perfView struct {
 	Accounts  string // account days per 12h, grouped; "" before the days span ran
 	LastDay   string // "1m25s over 96,000 accounts"
 	Row       string // the markdown row for benchmark.md
+	Routes    []perfRouteView
 }
 
 func viewPerf(r perf.Run) perfView {
-	v := perfView{Run: r, Date: r.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04"), Memory: fmt.Sprintf("%g GB", r.MemoryGB), Customers: groupInt(int64(r.Customers))}
+	v := perfView{Run: r, Date: r.CreatedAt.Local().Format("Mon 2 Jan 2006 15:04"), Memory: fmt.Sprintf("%g GB", r.MemoryGB), Customers: groupInt(int64(r.Customers)), Routes: viewPerfRoutes(r.Routes)}
 	if r.AddSpan > 0 {
 		v.Rate = fmt.Sprintf("%.1f", r.CustomersPerSec)
 	}

@@ -1241,3 +1241,69 @@ func TestRunAndJournalPagesLinkToTheScan(t *testing.T) {
 		}
 	}
 }
+
+// routesRuns are two scales at two versions, as gobank measured its
+// routes over each run.
+func routesRuns() []perf.Run {
+	t0 := time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local)
+	routes := func(health, customers int) []perf.Route {
+		return []perf.Route{{Pattern: "GET /v1/health", Count: 1200, P95: time.Duration(health) * time.Millisecond}, {Pattern: "/customers/", Count: 30, P95: time.Duration(customers) * time.Millisecond}}
+	}
+	return []perf.Run{
+		{RunID: "run-4", Environment: "perf-large", Scale: "large", ServerType: "ccx33", MemoryGB: 32, Version: "v0.52.0", CreatedAt: t0.Add(3 * time.Hour), Routes: routes(3, 41)},
+		{RunID: "run-3", Environment: "perf-small", Scale: "small", ServerType: "cx23", MemoryGB: 4, Version: "v0.52.0", CreatedAt: t0.Add(2 * time.Hour), Routes: routes(9, 77)},
+		{RunID: "run-2", Environment: "perf-large", Scale: "large", ServerType: "ccx33", MemoryGB: 32, Version: "v0.51.0", CreatedAt: t0.Add(time.Hour), Routes: routes(4, 40)},
+		{RunID: "run-1", Environment: "perf-small", Scale: "small", ServerType: "cx23", MemoryGB: 4, Version: "v0.51.0", CreatedAt: t0, Routes: routes(8, 70)},
+	}
+}
+
+// A performance run's page shows what the demo measured of every route
+// it served over the run: the count and the p95.
+func TestRunPageShowsAPerfRunsRoutes(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.perfRuns = routesRuns()
+	op.runs = []wf.RunRecord{{ID: "run-3", WorkflowType: "perf", Key: "perf-small small 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	_, body := get(t, ts, "/workflows/run-3")
+	for _, want := range []string{"<code>GET /v1/health</code></a></td><td>1,200</td><td>9ms</td>", "<code>/customers/</code></a></td><td>30</td><td>77ms</td>", `href="/perf/routes?route=GET%20%2fv1%2fhealth"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// The routes page follows one route across gobank's versions: a chart of
+// its p95 with a line per scale, the version on the x axis, and the same
+// figures as a table. The busiest route is shown unless another is
+// chosen; every measured route can be chosen.
+func TestRoutesPageChartsARoutesP95ByVersionPerScale(t *testing.T) {
+	ts, op := newTestServer(t)
+	_, body := get(t, ts, "/perf/routes")
+	if !strings.Contains(body, "No performance run has measured its routes yet") {
+		t.Errorf("empty routes page:\n%s", body)
+	}
+	op.mu.Lock()
+	op.perfRuns = routesRuns()
+	op.mu.Unlock()
+	code, body := get(t, ts, "/perf/routes")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{`<option value="GET /v1/health" selected>`, `<option value="/customers/">`, "<svg", "v0.51.0", "v0.52.0", "small (cx23, 4 GB)", "large (ccx33, 32 GB)",
+		`<td>8ms · 1,200</td><td>4ms · 1,200</td>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("routes page missing %q:\n%s", want, body)
+		}
+	}
+	_, body = get(t, ts, "/perf/routes?route=%2Fcustomers%2F")
+	for _, want := range []string{`<option value="/customers/" selected>`, `<td>77ms · 30</td><td>41ms · 30</td>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("routes page for /customers/ missing %q:\n%s", want, body)
+		}
+	}
+	_, body = get(t, ts, "/perf")
+	if !strings.Contains(body, `href="/perf/routes"`) {
+		t.Error("the performance page links the routes over versions")
+	}
+}

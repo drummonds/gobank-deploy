@@ -12,6 +12,8 @@ import (
 
 	db "git.bytestone.uk/hum3/gobank-db"
 	"github.com/google/uuid"
+
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 )
 
 // Drill is one rehearsal on an environment: upgrade from release From to
@@ -282,6 +284,10 @@ type Reading struct {
 	AccountDaysPer12h int64
 	LastDayDuration   time.Duration
 	LastDayAccounts   int
+
+	// What the demo has measured of every route it served since its
+	// process started (gobank v0.51.0 onwards; nil before).
+	Routes []perf.Route
 }
 
 // Observation is the reading recorded against a moment of the drill.

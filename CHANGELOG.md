@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- A performance run keeps gobank's per-route figures (#35): a new
+  `routes` stage, the last before `remove`, reads every route the demo
+  served over the run off `about.json` (gobank v0.51.0 onwards), its
+  request count and p95, and stores them with the run (perf schema v2,
+  a `routes` column). The run's page lists them; **Routes** under
+  Performance (`/perf/routes`) charts a chosen route's p95 against the
+  gobank version, a line per scale, with the same figures as a table.
+
 ## [0.21.0] - 2026-10-16
 
  - Scans readable: a page per scan, the latest against the previous, ten worst, critical and the trend (#33)

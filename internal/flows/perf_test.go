@@ -85,6 +85,7 @@ type perfConsole struct {
 	failAt       int // Read fails once the books hold this many customers; 0 never
 	starts, stop int
 	addCalls     []int
+	routes       []perf.Route // what every demo has measured of its routes
 }
 
 func (c *perfConsole) demo(url string) *demoState {
@@ -115,7 +116,7 @@ func (c *perfConsole) Read(_ context.Context, url string) (drills.Reading, error
 	}
 	rd := drills.Reading{Version: c.ops.version, About: true, Running: d.running,
 		Position:          &drills.Position{Day: dayOf(d.dayCount), DayCount: d.dayCount, Customers: d.customers, Savings: "£1.00", Lending: "£0.50"},
-		AccountDaysPer12h: 9_000_000, LastDayDuration: 85 * time.Second, LastDayAccounts: 2 * d.customers}
+		AccountDaysPer12h: 9_000_000, LastDayDuration: 85 * time.Second, LastDayAccounts: 2 * d.customers, Routes: c.routes}
 	if now.Before(d.addUntil) {
 		rd.Adding = true
 	} else if d.lastBatch > 0 {
@@ -205,9 +206,11 @@ func (h *perfHarness) run(scale string) error {
 // the demo flat out with room for every customer, adds customers until
 // the books hold the target, runs days until the bank is the years on or
 // the ceiling is reached, records both rates with what they were made of
-// and how long each took, and removes the server.
+// and how long each took, records what the demo measured of every route
+// it served, and removes the server.
 func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	h := newPerfHarness(t)
+	h.con.routes = []perf.Route{{Pattern: "GET /v1/health", Count: 12, P95: 2500 * time.Microsecond}}
 	if err := h.run("large"); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +238,7 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	for _, s := range steps {
 		done[s.StepName] = s.Status
 	}
-	for _, step := range []string{"create", "add", "days", "remove"} {
+	for _, step := range []string{"create", "add", "days", "routes", "remove"} {
 		if done[step] != wf.StatusCompleted {
 			t.Errorf("step %s = %v", step, done[step])
 		}
@@ -257,7 +260,10 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	if rec.DaysSpan != 6*time.Hour || rec.Days != 240 || rec.AccountDaysPer12h != 9_000_000 || rec.LastDay != 85*time.Second || rec.LastDayAccounts != 20_000 {
 		t.Errorf("days figures = %+v; want 6h, 240 days at 9,000,000 account days per 12h, last day 85s over 20000 accounts", rec)
 	}
-	for _, want := range []string{"customers/s", "account days", "ceiling"} {
+	if len(rec.Routes) != 1 || rec.Routes[0] != h.con.routes[0] {
+		t.Errorf("routes = %+v, want %+v", rec.Routes, h.con.routes)
+	}
+	for _, want := range []string{"customers/s", "account days", "ceiling", "1 routes"} {
 		if !strings.Contains(h.out.String(), want) {
 			t.Errorf("log should say %q:\n%s", want, h.out.String())
 		}

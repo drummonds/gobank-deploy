@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 )
 
 const aboutJSON = `{"version":"v0.8.0","schema":[{"component":"simulation","version":2}],
@@ -174,5 +176,29 @@ func TestConsolePostsAsTheOperatorAndRefusesALoginRedirect(t *testing.T) {
 	}
 	if err := c.Start(context.Background(), ts.URL, "wr0ng"); !errors.Is(err, ErrLoginWanted) {
 		t.Errorf("start with a wrong token: %v, want ErrLoginWanted (this stub redirects; the demo answers 401)", err)
+	}
+}
+
+// gobank v0.51.0 on measures every route it serves; the reading carries
+// each route's count and p95 since the process started, and a release
+// without them gives none.
+func TestConsoleReadsTheRoutesFigures(t *testing.T) {
+	body := `{"version":"v0.51.0","routes":[
+{"pattern":"GET /v1/health","method":"GET","path":"/v1/health","count":12,"in_flight":0,"peak_in_flight":1,"last":"1ms","p50":"800µs","p95":"2.5ms","max":"9ms","per_second":0.2},
+{"pattern":"/customers/","path":"/customers/","count":3,"p95":"40ms"}]}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
+	defer ts.Close()
+	rd, err := (&Console{}).Read(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []perf.Route{{Pattern: "GET /v1/health", Count: 12, P95: 2500 * time.Microsecond}, {Pattern: "/customers/", Count: 3, P95: 40 * time.Millisecond}}
+	if !reflect.DeepEqual(rd.Routes, want) {
+		t.Errorf("routes = %+v, want %+v", rd.Routes, want)
+	}
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"version":"v0.50.0"}`)) }))
+	defer ts2.Close()
+	if rd, _ := (&Console{}).Read(context.Background(), ts2.URL); rd.Routes != nil {
+		t.Errorf("a release without routes gives none: %+v", rd.Routes)
 	}
 }

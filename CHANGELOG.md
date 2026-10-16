@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the journal link to it; before, a scan's figures were only the journal
   page's markdown in a `<pre>`.
 
+### Changed
+- gobank-workflow v0.5.0: runs record the step list they ran (schema v4,
+  expand only, applied on start). Nothing here uses the new `Purpose` or
+  `Revision` yet (#31).
+
 ## [0.20.0] - 2026-10-16
 
  - Stories 18, 21, 28 and the roadmap epic for 26/27: the scan workflow and concurrency ladder, the journal figures adding up, and the Hetzner list as last listed

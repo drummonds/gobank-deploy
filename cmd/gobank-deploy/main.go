@@ -36,6 +36,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,6 +59,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-deploy/internal/flows"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/forge"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/hetzner"
+	"git.bytestone.uk/hum3/gobank-deploy/internal/load"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/perf"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/remote"
 	"git.bytestone.uk/hum3/gobank-deploy/internal/route53"
@@ -108,6 +110,13 @@ func usage() {
                                                        measured document written to PATH (default
                                                        <-src>/api/measured.json) for gobank's API pages,
                                                        for you to commit and release
+  gobank-deploy journey -base URL [-customers 1000] [-ladder 1,2,5,...] [-reps 10] [-budget 2s]
+                                                       load test from this host: the customer journey (login,
+                                                       accounts, one account) walked by each rung's users
+                                                       -reps times, customers in sequence, until a screen's
+                                                       p95 is over -budget; the app password from
+                                                       GOBANK_APP_PASSWORD; the result as JSON on stdout,
+                                                       a line a rung on stderr; no token needed
   gobank-deploy version
 
 Global flags (before the subcommand):
@@ -148,6 +157,27 @@ func main() {
 		out := fs.String("out", filepath.Join(*buildDir, "releases"), "release store to build into")
 		_ = fs.Parse(args)
 		if err := buildRelease(context.Background(), *src, *buildDir, *out); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if cmd == "journey" {
+		fs := flag.NewFlagSet("journey", flag.ExitOnError)
+		base := fs.String("base", "", "the customer BFF, e.g. http://10.0.1.2:1347/")
+		customers := fs.Int("customers", 1000, "customers on the books, walked in sequence")
+		ladder := fs.String("ladder", "", "concurrent users at each rung (default 1,2,5,10,20,50,100,200,500)")
+		reps := fs.Int("reps", 10, "journeys each user walks at a rung")
+		budget := fs.Duration("budget", 2*time.Second, "the p95 a screen may reach and the rung still hold")
+		_ = fs.Parse(args)
+		if *base == "" {
+			usage()
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		res := load.Run(ctx, load.Config{Base: *base, Password: os.Getenv("GOBANK_APP_PASSWORD"), Customers: *customers,
+			Ladder: parseLadder(*ladder), Reps: *reps, Budget: *budget, Progress: os.Stderr})
+		if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}

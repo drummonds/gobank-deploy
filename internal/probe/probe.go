@@ -63,15 +63,15 @@ func Measure(ctx context.Context, n, concurrency int, call func(ctx context.Cont
 		return Sample{}, first
 	}
 	slices.Sort(took)
-	s := Sample{N: len(took), P50: percentile(took, 0.50), P95: percentile(took, 0.95), Elapsed: time.Since(started)}
+	s := Sample{N: len(took), P50: Percentile(took, 0.50), P95: Percentile(took, 0.95), Elapsed: time.Since(started)}
 	if s.Elapsed > 0 {
 		s.PerSecond = float64(s.N) / s.Elapsed.Seconds()
 	}
 	return s, nil
 }
 
-// percentile is the nearest-rank percentile of sorted durations.
-func percentile(sorted []time.Duration, p float64) time.Duration {
+// Percentile is the nearest-rank percentile of sorted durations.
+func Percentile(sorted []time.Duration, p float64) time.Duration {
 	if len(sorted) == 0 {
 		return 0
 	}

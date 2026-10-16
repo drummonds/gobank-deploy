@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it), so the same shape — every scale at once, create, add, days,
   routes, remove — gives figures in tens of minutes.
 
+### Fixed
+- The perf days stage no longer polls a stopped demo to the ceiling
+  (#39): a demo found stopped short of the target is pressed Run again,
+  at most twice in a row, then the stage fails and the box goes. Seen on
+  a v0.55.0 run left at day 0 with the box billing.
+
 ## [0.23.0] - 2026-10-16
 
  - Load test: the customer journey from a loader box over a private network, capacity at p95 2s a screen; firewalls admit home only (#26)

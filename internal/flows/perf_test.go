@@ -84,6 +84,7 @@ type perfConsole struct {
 	settings     []string
 	failAt       int // Read fails once the books hold this many customers; 0 never
 	starts, stop int
+	ignoreStarts int // presses of Run the demo ignores before one takes; -1 ignores every one
 	addCalls     []int
 	routes       []perf.Route // what every demo has measured of its routes
 }
@@ -148,6 +149,9 @@ func (c *perfConsole) Start(_ context.Context, url, _ string) error {
 	defer c.mu.Unlock()
 	d := c.demo(url)
 	c.starts++
+	if c.ignoreStarts < 0 || c.starts <= c.ignoreStarts {
+		return nil
+	}
 	d.running, d.runFrom = true, c.now()
 	return nil
 }
@@ -446,5 +450,73 @@ func TestPerfRunsDaysUpToTheDaysWhenGiven(t *testing.T) {
 	}
 	if strings.Contains(h.out.String(), "ceiling") {
 		t.Errorf("the days were reached, not the ceiling:\n%s", h.out.String())
+	}
+}
+
+// A demo that does not run when Run is pressed is pressed again, at most
+// twice; one that then runs carries on as usual.
+func TestPerfPressesRunAgainWhenTheDemoDoesNotStart(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers, h.flow.Days = 100, 10
+	h.con.ignoreStarts = 2
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if h.con.starts != 3 {
+		t.Errorf("starts = %d; want Run pressed, then twice more", h.con.starts)
+	}
+	if !strings.Contains(h.out.String(), "not running: pressing Run again (2 of 2)") {
+		t.Errorf("the log should say Run was pressed again:\n%s", h.out.String())
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Days < 10 {
+		t.Errorf("record = %+v; want the ten days run", list)
+	}
+}
+
+// A demo still not running after two more presses fails the days stage
+// at once, rather than polling to the ceiling with the box billing; the
+// box goes with the undone create.
+func TestPerfAbortsWhenTheDemoWillNotRun(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers, h.flow.Days = 100, 10
+	h.con.ignoreStarts = -1
+	err := h.run("small")
+	if err == nil || !strings.Contains(err.Error(), "days: ") || !strings.Contains(err.Error(), "not running after Run was pressed 3 times") {
+		t.Fatalf("err = %v; want the days stage failed: not running", err)
+	}
+	if h.con.starts != 3 {
+		t.Errorf("starts = %d; want 3", h.con.starts)
+	}
+	if h.now.Sub(start) > time.Hour {
+		t.Errorf("the stage polled for %s; want it to give up within a few polls", h.now.Sub(start))
+	}
+	if h.ops.downs != 1 || len(h.ops.servers) != 0 {
+		t.Errorf("downs %d servers %v; want the box removed", h.ops.downs, h.ops.servers)
+	}
+}
+
+// A run that stops part way through the days is pressed again too.
+func TestPerfPressesRunAgainWhenTheDemoStopsMidway(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers, h.flow.Days = 100, 100
+	stopped := false
+	h.flow.Sleep = func(ctx context.Context, d time.Duration) error {
+		h.clock.Lock()
+		h.now = h.now.Add(d)
+		h.clock.Unlock()
+		if !stopped && h.con.demo("http://perf/").dayCount >= 20 {
+			stopped = true
+			h.con.mu.Lock()
+			h.con.demo("http://perf/").running = false
+			h.con.mu.Unlock()
+		}
+		return ctx.Err()
+	}
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	if h.con.starts != 2 {
+		t.Errorf("starts = %d; want the first press and one after the stop", h.con.starts)
 	}
 }

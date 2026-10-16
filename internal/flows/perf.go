@@ -34,7 +34,7 @@ var PerfDefinition = wf.Definition{
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
 		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
-		{Name: "days", Description: "Run until the bank's day is the years on (7) or the ceiling (6h) is reached, then Stop; read account days per 12h and the last day it is made of", Source: perfSrc},
+		{Name: "days", Description: "Run until the bank's day is the years on (7), or the days asked for, or the ceiling (6h) is reached, then Stop; a demo found stopped is pressed Run again at most twice in a row, then the stage fails; read account days per 12h and the last day it is made of", Source: perfSrc},
 		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95, read off about.json (gobank v0.51.0 onwards; none before)", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
 	},
@@ -437,17 +437,39 @@ func (r *perfRun) days(ctx context.Context) error {
 	}
 	target, ceiling := until.Format("2006-01-02"), r.p.ceiling()
 	from, fromDay := rd.Position.DayCount, rd.Position.Day
-	if !rd.Running {
+	press := func() error {
 		if err := r.p.Console.Start(ctx, st.URL, st.APIToken); err != nil {
 			return fmt.Errorf("starting the run: %w", err)
 		}
+		return nil
 	}
+	if !rd.Running {
+		if err := press(); err != nil {
+			return err
+		}
+	}
+	// A demo seen stopped short of the target is pressed again, at most
+	// runRetries times in a row; still stopped, the stage fails rather
+	// than polling to the ceiling with the box billing.
+	retries := 0
 	start := r.p.now()
 	for rd.Position.Day < target && r.p.now().Sub(start) < ceiling {
 		if err := r.p.sleep(ctx, min(or(r.p.Poll, 10*time.Second), ceiling-r.p.now().Sub(start))); err != nil {
 			return err
 		}
 		if _, rd, err = r.read(ctx); err != nil {
+			return err
+		}
+		if rd.Running || rd.Position.Day >= target {
+			retries = 0
+			continue
+		}
+		if retries == runRetries {
+			return fmt.Errorf("the demo is not running after Run was pressed %d times (day %s)", retries+1, rd.Position.Day)
+		}
+		retries++
+		fmt.Fprintf(r.out, "not running: pressing Run again (%d of %d)\n", retries, runRetries)
+		if err := press(); err != nil {
 			return err
 		}
 	}
@@ -484,6 +506,10 @@ func (r *perfRun) routes(ctx context.Context) error {
 	fmt.Fprintf(r.out, "%d routes measured\n", len(rec.Routes))
 	return r.p.Perfs.Update(ctx, *rec)
 }
+
+// runRetries is how many times in a row the days stage presses Run again
+// on a demo it finds stopped before it gives up.
+const runRetries = 2
 
 // stoppedBy is the log's note when a stage stopped short of its target at
 // the ceiling; empty when the target was reached.

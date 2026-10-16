@@ -31,8 +31,8 @@ var ScenarioDefinition = wf.Definition{
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create at the scale (skipped when the server exists); record where the run is and what was asked. Without --keep, undone by remove when a later stage fails, so the next attempt starts here", Source: scenarioSrc},
-		{Name: "add", Description: "flat out with room for the customers asked for; add them in batches at the rate the demo reports", Source: scenarioSrc},
-		{Name: "years", Description: "Run flat out until the bank's day is the years on from where it started; days run, account days per 12h and the last day", Source: scenarioSrc},
+		{Name: "add", Description: "flat out with room for the customers asked for; add them in batches: added, on the books, customers/s over the step's wall clock", Source: scenarioSrc},
+		{Name: "years", Description: "Run flat out until the bank's day is the years on from where it started: bank days run from and to, bank days and account days per wall-clock hour, the last day", Source: scenarioSrc},
 		{Name: "wallclock", Description: "set the day length to the wall-clock value and wait for the bank to follow the clock; the last day's pass", Source: scenarioSrc},
 		{Name: "probe", Description: "the dashboard, the customer search by name and a customer's page, from outside at concurrency 1 and 4: p50 and p95 each; then Stop", Source: scenarioSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname (skipped with --keep)", Source: scenarioSrc},
@@ -56,7 +56,14 @@ type Prober interface {
 	// Fetch does: the customer search takes its name this way, never in
 	// a URL.
 	Post(ctx context.Context, url, token string, form url.Values) (body string, took time.Duration, err error)
+	// Login signs a customer in to the demo at base and returns the
+	// session token the customer routes take as a bearer.
+	Login(ctx context.Context, base, customerID, password string) (token string, err error)
 }
+
+// fetcher fetches one URL and says how long it took: a GET as the
+// operator, a POST of the search, a GET as a customer.
+type fetcher func(ctx context.Context, url string) (string, time.Duration, error)
 
 // Scenario runs the scenario workflow.
 type Scenario struct {
@@ -70,8 +77,16 @@ type Scenario struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	Poll  time.Duration // how often a step looks at the demo; default 10s
 
-	Batch   int // customers per add; default 1000
-	Samples int // calls per route per concurrency; default 20
+	Batch   int   // customers per add; default 1000
+	Samples int   // calls per route per rung; default 20
+	Ladder  []int // the concurrencies each route is probed at; default 1, 4, 16
+}
+
+func (s *Scenario) ladder() []int {
+	if len(s.Ladder) > 0 {
+		return s.Ladder
+	}
+	return []int{1, 4, 16}
 }
 
 func (s *Scenario) now() time.Time {
@@ -120,8 +135,9 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 	if cfg.Search == "" {
 		cfg.Search = "Jones"
 	}
+	cfg.Ladder, cfg.Samples = s.ladder(), s.samples()
 	key := fmt.Sprintf("%s %s %s", env.Name, scale, s.now().Format("2006-01-02"))
-	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out}
+	run := &scenarioRun{s: s, env: env, scale: scale, cfg: cfg, key: key, out: out, wfType: WorkflowScenario}
 	remove := func(ctx context.Context) error {
 		fmt.Fprintln(out, "== remove")
 		return s.Ops.Down(ctx, env, out)
@@ -155,19 +171,20 @@ func (s *Scenario) Run(ctx context.Context, env deploy.Environment, scale string
 }
 
 type scenarioRun struct {
-	s     *Scenario
-	env   deploy.Environment
-	scale string
-	cfg   scenario.Config
-	key   string
-	out   io.Writer
-	runID string
+	s      *Scenario
+	env    deploy.Environment
+	scale  string
+	cfg    scenario.Config
+	key    string
+	out    io.Writer
+	wfType wf.WorkflowType // the scenario workflow, or the scan
+	runID  string
 }
 
 // resolve is the id of the workflow run the pipeline made for the key.
 func (r *scenarioRun) resolve(ctx context.Context) (string, error) {
 	if r.runID == "" {
-		run, err := r.s.Store.FindRunByKey(ctx, WorkflowScenario, r.key)
+		run, err := r.s.Store.FindRunByKey(ctx, r.wfType, r.key)
 		if err != nil || run == nil {
 			return "", fmt.Errorf("finding the run for %s: %v", r.key, err)
 		}
@@ -283,7 +300,6 @@ func (r *scenarioRun) add(ctx context.Context) error {
 		return fmt.Errorf("setting flat out: %w", err)
 	}
 	started, from := r.s.now(), rd.Position.Customers
-	var adding time.Duration
 	for rd.Position.Customers < from+r.cfg.Customers {
 		n := min(r.s.batch(), from+r.cfg.Customers-rd.Position.Customers)
 		if err := r.s.Console.AddCustomers(ctx, st.URL, st.APIToken, n); err != nil {
@@ -300,20 +316,19 @@ func (r *scenarioRun) add(ctx context.Context) error {
 				break
 			}
 		}
-		if rd.CustomersPerSec > 0 {
-			adding += time.Duration(float64(n) / rd.CustomersPerSec * float64(time.Second))
-		}
 	}
-	added := rd.Position.Customers - from
+	// The rate is the step's own: what it added over its wall clock,
+	// polling and all, so the page's figures multiply out. The demo's
+	// in-batch rate is the perf run's figure, not this one.
+	added, took := rd.Position.Customers-from, r.s.now().Sub(started)
 	rate := 0.0
-	if adding > 0 {
-		rate = float64(added) / adding.Seconds()
-	} else if elapsed := r.s.now().Sub(started); elapsed > 0 {
-		rate = float64(added) / elapsed.Seconds()
+	if took > 0 {
+		rate = float64(added) / took.Seconds()
 	}
-	fmt.Fprintf(r.out, "%d customers added: %.1f customers/s; %d on the books\n", added, rate, rd.Position.Customers)
-	return r.step(ctx, rec, scenario.Step{Name: "add", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "customers", Value: scenario.Comma(int64(rd.Position.Customers))},
+	fmt.Fprintf(r.out, "%d customers added in %s: %.1f customers/s; %d on the books\n", added, scenario.Dur(took), rate, rd.Position.Customers)
+	return r.step(ctx, rec, scenario.Step{Name: "add", Started: started, Duration: took, Figures: []scenario.Figure{
+		{Label: "added", Value: scenario.Comma(int64(added))},
+		{Label: "on the books", Value: scenario.Comma(int64(rd.Position.Customers))},
 		{Label: "customers/s", Value: fmt.Sprintf("%.1f", rate)},
 	}})
 }
@@ -338,7 +353,7 @@ func (r *scenarioRun) years(ctx context.Context) error {
 		return fmt.Errorf("the demo's day %q: %w", rd.Position.Day, err)
 	}
 	target := day.AddDate(r.cfg.Years, 0, 0).Format("2006-01-02")
-	from := rd.Position.DayCount
+	from, fromDay := rd.Position.DayCount, rd.Position.Day
 	if !rd.Running {
 		if err := r.s.Console.Start(ctx, st.URL, st.APIToken); err != nil {
 			return fmt.Errorf("starting the run: %w", err)
@@ -353,13 +368,23 @@ func (r *scenarioRun) years(ctx context.Context) error {
 			return err
 		}
 	}
-	days := rd.Position.DayCount - from
-	fmt.Fprintf(r.out, "%d days run to %s in %s: %s account days per 12h, last day %s over %d accounts\n",
-		days, rd.Position.Day, scenario.Dur(r.s.now().Sub(started)), scenario.Comma(rd.AccountDaysPer12h), scenario.Dur(rd.LastDayDuration), rd.LastDayAccounts)
-	return r.step(ctx, rec, scenario.Step{Name: "years", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "days", Value: scenario.Comma(int64(days))},
+	// Two clocks: bank days run, from and to on the bank's calendar; the
+	// rates per hour of the step's wall clock, so days times accounts over
+	// the duration is the account days figure.
+	days, took := rd.Position.DayCount-from, r.s.now().Sub(started)
+	daysPerHour, accountDaysPerHour := 0.0, 0.0
+	if hours := took.Hours(); hours > 0 {
+		daysPerHour = float64(days) / hours
+		accountDaysPerHour = float64(days) * float64(rd.LastDayAccounts) / hours
+	}
+	fmt.Fprintf(r.out, "%d bank days run from %s to %s in %s: %.0f bank days/h, %s account days/h; last day %s over %d accounts\n",
+		days, fromDay, rd.Position.Day, scenario.Dur(took), daysPerHour, scenario.Comma(int64(accountDaysPerHour+0.5)), scenario.Dur(rd.LastDayDuration), rd.LastDayAccounts)
+	return r.step(ctx, rec, scenario.Step{Name: "years", Started: started, Duration: took, Figures: []scenario.Figure{
+		{Label: "bank days", Value: scenario.Comma(int64(days))},
+		{Label: "from", Value: fromDay},
 		{Label: "to", Value: rd.Position.Day},
-		{Label: "account days / 12h", Value: scenario.Comma(rd.AccountDaysPer12h)},
+		{Label: "bank days/h", Value: fmt.Sprintf("%.0f", daysPerHour)},
+		{Label: "account days/h", Value: scenario.Comma(int64(accountDaysPerHour + 0.5))},
 		{Label: "last day", Value: scenario.Dur(rd.LastDayDuration)},
 		{Label: "accounts", Value: scenario.Comma(int64(rd.LastDayAccounts))},
 	}})
@@ -402,9 +427,51 @@ func (r *scenarioRun) wallclock(ctx context.Context) error {
 
 var customerLink = regexp.MustCompile(`href="(/customers/[^"/?#]+)"`)
 
-// probe measures the staff pages from outside at concurrency 1 and 4:
-// the dashboard, the customer search by name, and the first customer the
-// search lists. Then the run is stopped.
+// asOperator fetches as the operator, on the environment's API token.
+func (r *scenarioRun) asOperator(st deploy.Status) fetcher {
+	return func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Fetch(ctx, url, st.APIToken)
+	}
+}
+
+// searching posts the customer search with the run's name, as the
+// operator: the name travels in the form, never in a URL.
+func (r *scenarioRun) searching(st deploy.Status) fetcher {
+	form := url.Values{"name": {r.cfg.Search}}
+	return func(ctx context.Context, url string) (string, time.Duration, error) {
+		return r.s.Prober.Post(ctx, url, st.APIToken, form)
+	}
+}
+
+// rungs probes one route at every rung of the run's ladder, Samples
+// calls each, and returns the probes with the first body seen (the
+// search's, to find a customer in).
+func (r *scenarioRun) rungs(ctx context.Context, base, route, method, path string, fetch fetcher) ([]scenario.Probe, string, error) {
+	var mu sync.Mutex
+	var body string
+	var probes []scenario.Probe
+	for _, c := range r.cfg.Ladder {
+		sample, err := probe.Measure(ctx, r.cfg.Samples, c, func(ctx context.Context) (time.Duration, error) {
+			b, took, err := fetch(ctx, base+path)
+			mu.Lock()
+			if body == "" {
+				body = b
+			}
+			mu.Unlock()
+			return took, err
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("%s at concurrency %d: %w", route, c, err)
+		}
+		probes = append(probes, scenario.Probe{Route: route, Method: method, Path: path, Concurrency: c, N: sample.N, P50: sample.P50, P95: sample.P95, PerSecond: sample.PerSecond})
+		fmt.Fprintf(r.out, "%s %s %s at %d: p50 %s p95 %s %.1f/s over %d\n", route, method, path, c, scenario.Dur(sample.P50), scenario.Dur(sample.P95), sample.PerSecond, sample.N)
+	}
+	return probes, body, nil
+}
+
+// probe measures the staff pages from outside at each rung of the
+// ladder: the dashboard, the customer search by name, and the first
+// customer the search lists. Then the run is stopped.
 func (r *scenarioRun) probe(ctx context.Context) error {
 	fmt.Fprintln(r.out, "== probe")
 	rec, err := r.recorded(ctx)
@@ -417,54 +484,31 @@ func (r *scenarioRun) probe(ctx context.Context) error {
 	}
 	base := strings.TrimSuffix(st.URL, "/")
 	started := r.s.now()
-	rec.Probes = nil
 	var probes []scenario.Probe
-	get := func(ctx context.Context, url string) (string, time.Duration, error) {
-		return r.s.Prober.Fetch(ctx, url, st.APIToken)
-	}
-	search := url.Values{"name": {r.cfg.Search}}
-	post := func(ctx context.Context, url string) (string, time.Duration, error) {
-		return r.s.Prober.Post(ctx, url, st.APIToken, search)
-	}
-	measure := func(route, path string, fetch func(ctx context.Context, url string) (string, time.Duration, error)) (string, error) {
-		var mu sync.Mutex
-		var body string
-		for _, c := range []int{1, 4} {
-			sample, err := probe.Measure(ctx, r.s.samples(), c, func(ctx context.Context) (time.Duration, error) {
-				b, took, err := fetch(ctx, base+path)
-				mu.Lock()
-				if body == "" {
-					body = b
-				}
-				mu.Unlock()
-				return took, err
-			})
-			if err != nil {
-				return "", fmt.Errorf("%s at concurrency %d: %w", route, c, err)
-			}
-			probes = append(probes, scenario.Probe{Route: route, Path: path, Concurrency: c, N: sample.N, P50: sample.P50, P95: sample.P95})
-			fmt.Fprintf(r.out, "%s %s at %d: p50 %s p95 %s over %d\n", route, path, c, scenario.Dur(sample.P50), scenario.Dur(sample.P95), sample.N)
-		}
-		return body, nil
-	}
-	if _, err := measure("dashboard", "/", get); err != nil {
-		return err
-	}
-	body, err := measure("customer search by name", "/customers/search", post)
+	dash, _, err := r.rungs(ctx, base, "dashboard", "GET", "/", r.asOperator(st))
 	if err != nil {
 		return err
 	}
+	probes = append(probes, dash...)
+	found, body, err := r.rungs(ctx, base, "customer search by name", "POST", "/customers/search", r.searching(st))
+	if err != nil {
+		return err
+	}
+	probes = append(probes, found...)
 	if m := customerLink.FindStringSubmatch(body); m != nil {
-		if _, err := measure("customer page", m[1], get); err != nil {
+		page, _, err := r.rungs(ctx, base, "customer page", "GET", m[1], r.asOperator(st))
+		if err != nil {
 			return err
 		}
+		probes = append(probes, page...)
 	} else {
 		fmt.Fprintln(r.out, "the search listed no customer: customer page not probed")
 	}
 	rec.Probes = probes
 	if err := r.step(ctx, rec, scenario.Step{Name: "probe", Started: started, Duration: r.s.now().Sub(started), Figures: []scenario.Figure{
-		{Label: "routes", Value: fmt.Sprint(len(probes) / 2)},
-		{Label: "samples", Value: fmt.Sprint(r.s.samples())},
+		{Label: "routes", Value: fmt.Sprint(len(probes) / len(r.cfg.Ladder))},
+		{Label: "ladder", Value: fmt.Sprint(r.cfg.Ladder)},
+		{Label: "samples", Value: fmt.Sprint(r.cfg.Samples)},
 	}}); err != nil {
 		return err
 	}

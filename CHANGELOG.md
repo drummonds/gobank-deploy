@@ -13,6 +13,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   now the project as last listed: one list answers the page and the
   flows for 30 seconds, a server by name is read off it, and a create,
   delete or relabel by this program forgets the list so it shows at once.
+- The journal's figures add up (#18): the add step records what it added,
+  the books' total, and customers/s over its own wall clock, where it
+  showed the books' total under "customers" beside the demo's in-batch
+  rate, so 3,000 customers could sit beside a rate and a duration that
+  made 2,400. The years step names its two clocks: bank days from and to,
+  bank days/h and account days/h over the step's wall clock, in place of
+  the demo's "account days / 12h". The steps table's column is "Wall
+  clock" and the README has the vocabulary.
+
+### Added
+- The concurrency ladder (#21): the scenario's probe loads each route at
+  1, 4 and 16 in flight (`-ladder`) and records the throughput it
+  achieved beside p50 and p95; the journal's probes table gains the
+  method and the per-second column.
+- The scan workflow (#21): `gobank-deploy scan <env>` is a full
+  performance scan of an environment as it stands — every route the
+  demo's API document lists that the scan can drive, as the operator or
+  as a customer, at each rung of the ladder, the rest listed as not
+  scanned with why — kept as a run of the journal and written as the
+  measured document `api/measured.json` into gobank's checkout for its
+  API pages to show alongside each route.
 
 ## [0.19.1] - 2026-10-16
 

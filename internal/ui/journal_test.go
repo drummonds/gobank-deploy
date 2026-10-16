@@ -36,14 +36,14 @@ func TestJournalUnderAboutShowsEachRunAsItsPage(t *testing.T) {
 		CreatedAt: time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC),
 		Config:    scenario.Config{Name: "seven-years", Customers: 1000, Years: 7, DayLength: 24 * time.Hour, Search: "Smith"},
 		Steps:     []scenario.Step{{Name: "add", Started: time.Date(2026, 10, 15, 9, 1, 0, 0, time.UTC), Duration: 2 * time.Minute, Figures: []scenario.Figure{{Label: "customers", Value: "1,000"}}}},
-		Probes:    []scenario.Probe{{Route: "dashboard", Path: "/", Concurrency: 1, N: 20, P50: 80 * time.Millisecond, P95: 90 * time.Millisecond}}}}
+		Probes:    []scenario.Probe{{Route: "dashboard", Method: "GET", Path: "/", Concurrency: 1, N: 20, P50: 80 * time.Millisecond, P95: 90 * time.Millisecond, PerSecond: 12.5}}}}
 	op.mu.Unlock()
 	_, body = get(t, ts, "/about/journal")
 	for _, want := range []string{
 		"2026-10-15 seven-years at large",
 		"journal/2026-10-15-seven-years-large.md",
 		"| add | 09:01:00 | 2m | customers 1,000 |",
-		"| dashboard | `/` | 1 | 20 | 80ms | 90ms |",
+		"| dashboard | GET | `/` | 1 | 20 | 80ms | 90ms | 12.5 |",
 		"## Notes",
 		`href="/workflows/run-1"`,
 		"- [2026-10-15 seven-years at large](2026-10-15-seven-years-large.md)",

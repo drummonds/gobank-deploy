@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	neturl "net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -49,17 +50,38 @@ func (c *scenarioConsole) SetDayLength(_ context.Context, _, _ string, d time.Du
 }
 
 // fakeProber answers every page in a fixed time; the customer search
-// lists one customer, so the customer page can be found from it.
+// lists one customer, so the customer page can be found from it. pages
+// are bodies by path for what a scan reads; tokens the bearer each URL
+// was fetched with.
 type fakeProber struct {
-	mu   sync.Mutex
-	urls []string
+	mu     sync.Mutex
+	urls   []string
+	pages  map[string]string
+	tokens map[string]string
+	logins []string
 }
 
-func (p *fakeProber) Fetch(_ context.Context, url, _ string) (string, time.Duration, error) {
+func (p *fakeProber) Fetch(_ context.Context, url, token string) (string, time.Duration, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.urls = append(p.urls, url)
+	if p.tokens == nil {
+		p.tokens = map[string]string{}
+	}
+	p.tokens[url] = token
+	for path, body := range p.pages {
+		if strings.HasSuffix(url, path) {
+			return body, 80 * time.Millisecond, nil
+		}
+	}
 	return "<html>page</html>", 80 * time.Millisecond, nil
+}
+
+func (p *fakeProber) Login(_ context.Context, base, customerID, password string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logins = append(p.logins, customerID+":"+password)
+	return "tok-" + customerID, nil
 }
 
 func (p *fakeProber) Post(_ context.Context, url, _ string, form neturl.Values) (string, time.Duration, error) {
@@ -107,7 +129,7 @@ func newScenarioHarness(t *testing.T) *scenarioHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &scenarioHarness{ops: &perfOps{version: "v0.49.0", servers: map[string]*deploy.Server{}}, runs: wf.NewMemStore(), store: store, now: start, prob: &fakeProber{}}
+	h := &scenarioHarness{ops: &perfOps{version: "v0.49.0", servers: map[string]*deploy.Server{}, token: "op-tok", appPassword: "pw"}, runs: wf.NewMemStore(), store: store, now: start, prob: &fakeProber{}}
 	clock := func() time.Time { h.clock.Lock(); defer h.clock.Unlock(); return h.now }
 	// Flat out a simulated day passes every ten seconds, one per poll.
 	h.con = &scenarioConsole{perfConsole: &perfConsole{ops: h.ops, now: clock, batchTime: time.Minute, dayTime: 10 * time.Second}}
@@ -170,18 +192,19 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("day lengths set %v; want 24h once, after the years", h.con.dayLengths)
 	}
 
-	// Three routes at two concurrencies, Samples each; the customer page
-	// found from the search.
+	// Three routes at each rung of the ladder, Samples each; the customer
+	// page found from the search.
 	for _, suffix := range []string{"/", "/customers/search", "/customers/abc-123"} {
-		if n := h.prob.count(suffix); n != 40 {
-			t.Errorf("%s fetched %d times; want 20 at each of concurrency 1 and 4", suffix, n)
+		if n := h.prob.count(suffix); n != 60 {
+			t.Errorf("%s fetched %d times; want 20 at each of concurrency 1, 4 and 16", suffix, n)
 		}
 	}
 
 	if rec == nil {
 		t.Fatal("no record")
 	}
-	if rec.Environment != "seven-years" || rec.Scale != "large" || rec.ServerType != "ccx33" || rec.MemoryGB != 32 || rec.Version != "v0.49.0" || rec.Config != sevenYears {
+	if rec.Environment != "seven-years" || rec.Scale != "large" || rec.ServerType != "ccx33" || rec.MemoryGB != 32 || rec.Version != "v0.49.0" ||
+		rec.Config.Name != sevenYears.Name || rec.Config.Customers != sevenYears.Customers || rec.Config.Years != sevenYears.Years || rec.Config.DayLength != sevenYears.DayLength || rec.Config.Search != sevenYears.Search {
 		t.Errorf("where it ran and what was asked = %+v", rec)
 	}
 	var names []string
@@ -192,22 +215,25 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("steps recorded = %v", names)
 	}
 	add, years, wall := rec.Steps[0], rec.Steps[1], rec.Steps[2]
-	if add.Duration != time.Minute || figure(add, "customers") != "1,000" || figure(add, "customers/s") != "16.7" {
-		t.Errorf("add = %+v; want a minute, 1,000 customers at 16.7/s", add)
+	if add.Duration != time.Minute || figure(add, "added") != "1,000" || figure(add, "on the books") != "1,000" || figure(add, "customers/s") != "16.7" {
+		t.Errorf("add = %+v; want a minute, 1,000 added at 16.7/s", add)
 	}
-	if years.Duration < 2555*10*time.Second || years.Duration > 2558*10*time.Second || figure(years, "days") == "" || figure(years, "account days / 12h") != "9,000,000" || figure(years, "last day") != "1m25s" || figure(years, "accounts") != "2,000" {
+	if years.Duration < 2555*10*time.Second || years.Duration > 2558*10*time.Second || figure(years, "bank days") == "" || figure(years, "from") != "2026-01-01" || figure(years, "to") != "2033-01-01" || figure(years, "bank days/h") != "360" || figure(years, "account days/h") != "720,000" || figure(years, "last day") != "1m25s" || figure(years, "accounts") != "2,000" {
 		t.Errorf("years = %+v", years)
 	}
 	if figure(wall, "last day") != "1m25s" {
 		t.Errorf("wallclock = %+v; want the pass at wall clock", wall)
 	}
-	if len(rec.Probes) != 6 {
-		t.Fatalf("probes = %+v; want three routes at two concurrencies", rec.Probes)
+	if len(rec.Probes) != 9 {
+		t.Fatalf("probes = %+v; want three routes at three rungs", rec.Probes)
 	}
 	for _, p := range rec.Probes {
-		if p.N != 20 || (p.Concurrency != 1 && p.Concurrency != 4) || p.P50 == 0 || p.P95 == 0 || p.Route == "" || !strings.HasPrefix(p.Path, "/") {
+		if p.N != 20 || (p.Concurrency != 1 && p.Concurrency != 4 && p.Concurrency != 16) || p.P50 == 0 || p.P95 == 0 || p.PerSecond <= 0 || p.Route == "" || p.Method == "" || !strings.HasPrefix(p.Path, "/") {
 			t.Errorf("probe = %+v", p)
 		}
+	}
+	if fmt.Sprint(rec.Config.Ladder) != "[1 4 16]" || rec.Config.Samples != 20 {
+		t.Errorf("the ladder and samples are recorded on the run: %+v", rec.Config)
 	}
 
 	runs, _ := h.runs.ListRuns(context.Background(), 1)
@@ -228,7 +254,7 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("record run id %s; want the workflow run's %s", rec.RunID, runs[0].ID)
 	}
 	stored, err := h.store.Get(context.Background(), rec.RunID)
-	if err != nil || stored == nil || len(stored.Steps) != 4 || len(stored.Probes) != 6 {
+	if err != nil || stored == nil || len(stored.Steps) != 4 || len(stored.Probes) != 9 {
 		t.Errorf("stored = %+v, %v; want the run as returned", stored, err)
 	}
 	if out := h.out.String(); !strings.Contains(out, "days") || !strings.Contains(out, "p95") {
@@ -286,5 +312,45 @@ func TestScenarioFailureRemovesTheBoxUnlessKept(t *testing.T) {
 	}
 	if kept.ops.downs != 0 || len(kept.ops.servers) != 1 {
 		t.Errorf("downs %d servers %d; want the box kept", kept.ops.downs, len(kept.ops.servers))
+	}
+}
+
+// A step's figures add up on the page. The add step counts what it added,
+// not what the books hold, and its rate is that count over the step's own
+// wall clock, polling and all, so added equals customers/s times the
+// duration; the demo's in-batch rate, which the polling is not in, is not
+// the figure. The years step names its two clocks: bank days run, from and
+// to on the bank's calendar, and the rates per wall-clock hour of the step.
+func TestScenarioFiguresAddUp(t *testing.T) {
+	h := newScenarioHarness(t)
+	h.flow.Poll = 25 * time.Second // three polls see out a minute's batch: 75s of wall clock
+	h.con.demo("http://seven-years/").customers = 600
+	rec, err := h.run(scenario.Config{Name: "seven-years", Customers: 1000, Years: 1, DayLength: 24 * time.Hour, Search: "Smith"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add, years := rec.Steps[0], rec.Steps[1]
+	if add.Duration != 75*time.Second || figure(add, "added") != "1,000" || figure(add, "on the books") != "1,600" || figure(add, "customers/s") != "13.3" {
+		t.Errorf("add = %+v; want 1,000 added to 1,600 on the books in 75s at 13.3/s", add)
+	}
+	if figure(add, "customers") != "" {
+		t.Errorf("the books' total is not labelled as if the step added it: %+v", add)
+	}
+	days, _ := strconv.Atoi(strings.ReplaceAll(figure(years, "bank days"), ",", ""))
+	if days < 365 || days > 368 || figure(years, "from") != dayOf(0) || figure(years, "to") != dayOf(days) {
+		t.Errorf("years = %+v; want a year of bank days from %s", years, dayOf(0))
+	}
+	hours := years.Duration.Hours()
+	if want := fmt.Sprintf("%.0f", float64(days)/hours); figure(years, "bank days/h") != want {
+		t.Errorf("bank days/h = %q; want %s, the days over the step's %s", figure(years, "bank days/h"), want, years.Duration)
+	}
+	if want := scenario.Comma(int64(float64(days)*3200/hours + 0.5)); figure(years, "account days/h") != want {
+		t.Errorf("account days/h = %q; want %s, the days times the 3,200 accounts over the step's hours", figure(years, "account days/h"), want)
+	}
+	if figure(years, "account days / 12h") != "" || figure(years, "days") != "" {
+		t.Errorf("the demo's pass-window figure and the unlabelled days are gone: %+v", years)
+	}
+	if figure(years, "last day") != "1m25s" || figure(years, "accounts") != "3,200" {
+		t.Errorf("years keeps the last day's wall clock and the accounts: %+v", years)
 	}
 }

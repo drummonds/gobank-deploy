@@ -64,6 +64,17 @@
         system over seven years.</p>
       <figure><img src="/assets/scenario-workflow.svg" alt="Scenario workflow: create, add, years, wallclock, probe, remove"></figure>
 
+      <h2 class="title is-5">The scan workflow</h2>
+      <p><code>gobank-deploy scan &lt;env&gt;</code> is a full performance scan of an environment as it stands, keyed by
+        environment and date: <code>survey</code> (the environment must be serving; where the scan is), <code>scan</code>
+        (every route the demo's <code>/v1/openapi.json</code> lists that the scan can drive — a GET without path
+        parameters as the operator or as a customer by what the route needs, the customer search by its post — loaded
+        at each rung of the concurrency ladder, 1, 4 and 16; the rest listed as not scanned with why). No server is
+        made or removed. The scan is a run of the <a href="/about/journal">Journal</a> like a scenario, and it writes
+        the measured document, <code>api/measured.json</code> in gobank's checkout, so gobank's API pages show what each
+        route measured alongside its facts.</p>
+      <figure><img src="/assets/scan-workflow.svg" alt="Scan workflow: survey, scan"></figure>
+
       <h2 class="title is-5">Links</h2>
       <ul>
         <li><a href="https://gobank-deploy.docs.bytestone.uk/">Documentation</a> — the same diagrams with the tables behind them</li>

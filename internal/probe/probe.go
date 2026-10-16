@@ -11,10 +11,14 @@ import (
 	"time"
 )
 
-// Sample is what one measurement found.
+// Sample is what one measurement found: the calls made, the percentiles
+// of their durations, the wall clock the measurement took and so the
+// throughput — calls completed a second at that concurrency.
 type Sample struct {
-	N        int
-	P50, P95 time.Duration
+	N         int
+	P50, P95  time.Duration
+	Elapsed   time.Duration
+	PerSecond float64
 }
 
 // Measure makes n calls, at most concurrency of them at once, and reports
@@ -26,6 +30,7 @@ func Measure(ctx context.Context, n, concurrency int, call func(ctx context.Cont
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	started := time.Now()
 	var (
 		mu    sync.Mutex
 		took  []time.Duration
@@ -58,7 +63,11 @@ func Measure(ctx context.Context, n, concurrency int, call func(ctx context.Cont
 		return Sample{}, first
 	}
 	slices.Sort(took)
-	return Sample{N: len(took), P50: percentile(took, 0.50), P95: percentile(took, 0.95)}, nil
+	s := Sample{N: len(took), P50: percentile(took, 0.50), P95: percentile(took, 0.95), Elapsed: time.Since(started)}
+	if s.Elapsed > 0 {
+		s.PerSecond = float64(s.N) / s.Elapsed.Seconds()
+	}
+	return s, nil
 }
 
 // percentile is the nearest-rank percentile of sorted durations.

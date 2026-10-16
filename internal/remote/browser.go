@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +40,32 @@ func (p *Browser) Post(ctx context.Context, url, token string, form url.Values) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return p.do(req, token)
+}
+
+// Login signs a customer in to the demo's app BFF at base, the way the
+// app does (POST /v1/login as JSON), and returns the session token to
+// send as a bearer on the customer routes.
+func (p *Browser) Login(ctx context.Context, base, customerID, password string) (string, error) {
+	body, err := json.Marshal(map[string]string{"customer_id": customerID, "password": password})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(base, "/")+"/v1/login", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	answer, _, err := p.do(req, "")
+	if err != nil {
+		return "", fmt.Errorf("login as %s: %w", customerID, err)
+	}
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(answer), &resp); err != nil || resp.Token == "" {
+		return "", fmt.Errorf("login as %s: no token in the answer", customerID)
+	}
+	return resp.Token, nil
 }
 
 func (p *Browser) do(req *http.Request, token string) (string, time.Duration, error) {

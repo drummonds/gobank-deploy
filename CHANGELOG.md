@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-16
+
+ - A failed perf or scenario run removes its box instead of leaving it billing (#29)
+
 ### Fixed
 - A failed perf or scenario run no longer leaves its box billing (#29):
   create is undone by remove when a later stage fails (gobank-workflow's

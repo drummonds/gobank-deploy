@@ -46,6 +46,9 @@ type Server struct {
 	Location string
 	MemoryGB float64 // RAM of the server type; 0 when unknown
 	Labels   map[string]string
+	// PrivateIP is the server's address on the private network; "" when
+	// it is not attached.
+	PrivateIP string
 }
 
 // expiresLabel holds a temporary server's removal time in UTC as
@@ -127,6 +130,7 @@ type CreateSpec struct {
 	Image    string
 	Location string
 	Firewall string
+	Network  string // the private network to attach it to; "" for none
 	SSHKeys  []string
 	UserData string
 	Labels   map[string]string
@@ -135,8 +139,9 @@ type CreateSpec struct {
 // FirewallRule is one inbound allow rule.
 type FirewallRule struct {
 	Description string
-	Protocol    string // tcp | icmp
-	Port        string // empty for icmp
+	Protocol    string   // tcp | icmp
+	Port        string   // empty for icmp
+	Sources     []string // CIDRs admitted; empty is anywhere
 }
 
 // Cloud is the provider: Hetzner in production, a fake in tests.
@@ -146,8 +151,15 @@ type Cloud interface {
 	CreateServer(ctx context.Context, spec CreateSpec) (*Server, error)
 	DeleteServer(ctx context.Context, name string) error
 	FirewallExists(ctx context.Context, name string) (bool, error)
-	CreateFirewall(ctx context.Context, name string, rules []FirewallRule) error
+	// SetFirewall makes the named firewall's inbound rules exactly these,
+	// creating it when there is none.
+	SetFirewall(ctx context.Context, name string, rules []FirewallRule) error
 	DeleteFirewall(ctx context.Context, name string) error
+	// EnsureNetwork creates the private network and its subnet unless a
+	// network of that name exists.
+	EnsureNetwork(ctx context.Context, n Network) error
+	// AttachNetwork attaches the named server to the named network.
+	AttachNetwork(ctx context.Context, server, network string) error
 	SSHKeys(ctx context.Context) ([]string, error)
 	// Servers lists every server in the project.
 	Servers(ctx context.Context) ([]*Server, error)
@@ -158,6 +170,9 @@ type Cloud interface {
 // Host is a root shell on a server.
 type Host interface {
 	Run(ctx context.Context, cmd string) error
+	// Output runs cmd and returns what it wrote to stdout; what it writes
+	// to stderr goes to progress as it comes.
+	Output(ctx context.Context, cmd string, progress io.Writer) ([]byte, error)
 	Put(ctx context.Context, local, remote string) error
 }
 
@@ -289,6 +304,13 @@ type Deployer struct {
 	DNS    DNS
 	Domain string
 
+	// Admit are the CIDRs the firewall lets reach ssh and the demo (home);
+	// empty admits anywhere, as before there was a choice.
+	Admit []string
+	// Self is this program's executable and SelfArch its architecture,
+	// for a loader to carry; os.Executable and runtime.GOARCH when empty.
+	Self, SelfArch string
+
 	Image     string   // defaults to ubuntu-24.04
 	Locations []string // tried in order when one has no capacity; defaults to fsn1, nbg1, hel1
 	Out       io.Writer
@@ -324,6 +346,8 @@ type Status struct {
 	// APIToken is what this program drives the demo's console with (gobank
 	// story 9.4); "" before the first up since the story that introduced it.
 	APIToken string
+	// Loader: the server is a load test's loader, not a demo.
+	Loader bool
 }
 
 // Behind: the next up would deploy a different release from the one running.
@@ -357,10 +381,12 @@ func goarchFor(serverType string) string {
 	return "amd64"
 }
 
-func firewallRules() []FirewallRule {
+// firewallRules are a demo box's: ssh and the demo from the admitted
+// ranges, ping from anywhere. The private network is not filtered.
+func firewallRules(admit []string) []FirewallRule {
 	return []FirewallRule{
-		{Description: "ssh", Protocol: "tcp", Port: "22"},
-		{Description: "demo", Protocol: "tcp", Port: servicePort},
+		{Description: "ssh", Protocol: "tcp", Port: "22", Sources: admit},
+		{Description: "demo", Protocol: "tcp", Port: servicePort, Sources: admit},
 		{Description: "ping", Protocol: "icmp"},
 	}
 }
@@ -439,11 +465,17 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lookup server %s: %w", name, err)
 	}
+	if srv == nil && !o.Create {
+		return nil, fmt.Errorf("%s: %w", name, ErrNeedsCreate)
+	}
+	if err := d.network(ctx); err != nil {
+		return nil, err
+	}
+	if err := d.firewall(ctx, name, firewallRules(d.Admit)); err != nil {
+		return nil, err
+	}
 	created := false
 	if srv == nil {
-		if !o.Create {
-			return nil, fmt.Errorf("%s: %w", name, ErrNeedsCreate)
-		}
 		srv, err = d.create(ctx, o, newAppPassword(), newAppPassword(), newAppPassword())
 		if err != nil {
 			return nil, err
@@ -451,6 +483,9 @@ func (d *Deployer) Up(ctx context.Context, o UpOptions) (*Server, error) {
 		created = true
 	} else {
 		d.printf("== server %s already exists (%s) — redeploying binary only\n", name, srv.Type)
+		if err := d.attach(ctx, srv); err != nil {
+			return nil, err
+		}
 	}
 	named := d.publish(ctx, o.Env, srv)
 
@@ -638,6 +673,22 @@ systemctl restart gobank-demo
 
 func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPassword, apiToken string) (*Server, error) {
 	name := o.Env.ServerName()
+	typ, _ := ServerType(o.Scale)
+	return d.place(ctx, CreateSpec{
+		Name:     name,
+		Type:     typ,
+		Firewall: name,
+		Network:  PrivateNetwork.Name,
+		UserData: cloudInit,
+		Labels:   labels(o, appPassword, adminPassword, apiToken),
+	})
+}
+
+// place creates the server the spec describes, its image, location and
+// keys filled in: every location for the type asked for, then the next
+// size down at every location again. A smaller box beats no box, and the
+// server's actual type is what is recorded.
+func (d *Deployer) place(ctx context.Context, spec CreateSpec) (*Server, error) {
 	keys, err := d.Cloud.SSHKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list ssh keys: %w", err)
@@ -645,44 +696,22 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPa
 	if len(keys) == 0 {
 		return nil, ErrNoSSHKeys
 	}
-
-	exists, err := d.Cloud.FirewallExists(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("lookup firewall %s: %w", name, err)
+	spec.SSHKeys = keys
+	spec.Image = d.Image
+	if spec.Image == "" {
+		spec.Image = defaultImage
 	}
-	if !exists {
-		d.printf("== firewall %s\n", name)
-		if err := d.Cloud.CreateFirewall(ctx, name, firewallRules()); err != nil {
-			return nil, fmt.Errorf("create firewall: %w", err)
-		}
-	}
-
-	typ, _ := ServerType(o.Scale)
-	image, locations := d.Image, d.Locations
-	if image == "" {
-		image = defaultImage
-	}
+	locations := d.Locations
 	if len(locations) == 0 {
 		locations = defaultLocations
 	}
-	// Every location for the type asked for, then the next size down at
-	// every location again: a smaller box beats no box, and the server's
-	// actual type is what is recorded.
 	for {
 		var err error
 		for i, location := range locations {
-			d.printf("== create server %s (%s, %s)\n", name, typ, location)
+			spec.Location = location
+			d.printf("== create server %s (%s, %s)\n", spec.Name, spec.Type, location)
 			var srv *Server
-			srv, err = d.Cloud.CreateServer(ctx, CreateSpec{
-				Name:     name,
-				Type:     typ,
-				Image:    image,
-				Location: location,
-				Firewall: name,
-				SSHKeys:  keys,
-				UserData: cloudInit,
-				Labels:   labels(o, appPassword, adminPassword, apiToken),
-			})
+			srv, err = d.Cloud.CreateServer(ctx, spec)
 			if err == nil {
 				return srv, nil
 			}
@@ -690,15 +719,15 @@ func (d *Deployer) create(ctx context.Context, o UpOptions, appPassword, adminPa
 				return nil, fmt.Errorf("create server: %w", err)
 			}
 			if i < len(locations)-1 {
-				d.printf("no capacity for %s in %s: trying %s\n", typ, location, locations[i+1])
+				d.printf("no capacity for %s in %s: trying %s\n", spec.Type, location, locations[i+1])
 			}
 		}
-		smaller := sizeDown(typ)
+		smaller := sizeDown(spec.Type)
 		if smaller == "" {
 			return nil, fmt.Errorf("create server: %w", err)
 		}
-		d.printf("no capacity for %s anywhere: trying %s\n", typ, smaller)
-		typ = smaller
+		d.printf("no capacity for %s anywhere: trying %s\n", spec.Type, smaller)
+		spec.Type = smaller
 	}
 }
 
@@ -839,6 +868,9 @@ func (d *Deployer) Status(ctx context.Context, env Environment) (Status, error) 
 	}
 	if srv == nil {
 		return Status{}, nil
+	}
+	if srv.Labels[roleLabel] == roleLoader {
+		return Status{Server: srv, Loader: true}, nil
 	}
 	// Probe by address: it works before the hostname has propagated.
 	version, serving := d.Probe.Probe(ctx, serviceURL(srv.IP))

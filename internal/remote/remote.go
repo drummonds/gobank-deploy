@@ -267,6 +267,26 @@ func (h *host) Run(ctx context.Context, cmd string) error {
 	return nil
 }
 
+// Output runs cmd and returns its stdout; its stderr goes to progress as
+// it comes, and is in the error when the command fails.
+func (h *host) Output(ctx context.Context, cmd string, progress io.Writer) ([]byte, error) {
+	sess, err := h.client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	var out, errs bytes.Buffer
+	sess.Stdout = &out
+	sess.Stderr = &errs
+	if progress != nil {
+		sess.Stderr = io.MultiWriter(&errs, progress)
+	}
+	if err := sess.Run(cmd); err != nil {
+		return nil, fmt.Errorf("%w\n%s", err, strings.TrimSpace(errs.String()))
+	}
+	return out.Bytes(), nil
+}
+
 // Put streams a local file to remote over a session's stdin; no scp or sftp
 // needed on either side.
 func (h *host) Put(ctx context.Context, local, remote string) error {

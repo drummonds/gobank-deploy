@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -17,6 +18,9 @@ import (
 type fakeCloud struct {
 	servers   map[string]*Server
 	firewalls map[string]bool
+	rules     map[string][]FirewallRule // as last set
+	networks  []Network
+	attached  []string // "server network"
 	sshKeys   []string
 	created   []CreateSpec
 	deleted   []string
@@ -28,6 +32,7 @@ func newFakeCloud() *fakeCloud {
 	return &fakeCloud{
 		servers:   map[string]*Server{},
 		firewalls: map[string]bool{},
+		rules:     map[string][]FirewallRule{},
 		sshKeys:   []string{"laptop", "jeeves"},
 		full:      map[string]bool{},
 	}
@@ -43,6 +48,9 @@ func (c *fakeCloud) CreateServer(_ context.Context, spec CreateSpec) (*Server, e
 		return nil, fmt.Errorf("%w: error during placement (resource_unavailable)", ErrNoCapacity)
 	}
 	s := &Server{Name: spec.Name, IP: "10.0.0.7", Type: spec.Type, Status: "running", Location: spec.Location, MemoryGB: 4, Labels: spec.Labels}
+	if spec.Network != "" {
+		s.PrivateIP = fmt.Sprintf("10.0.1.%d", len(c.servers)+2)
+	}
 	c.servers[spec.Name] = s
 	return s, nil
 }
@@ -57,8 +65,20 @@ func (c *fakeCloud) FirewallExists(_ context.Context, name string) (bool, error)
 	return c.firewalls[name], nil
 }
 
-func (c *fakeCloud) CreateFirewall(_ context.Context, name string, _ []FirewallRule) error {
+func (c *fakeCloud) SetFirewall(_ context.Context, name string, rules []FirewallRule) error {
 	c.firewalls[name] = true
+	c.rules[name] = rules
+	return nil
+}
+
+func (c *fakeCloud) EnsureNetwork(_ context.Context, n Network) error {
+	c.networks = append(c.networks, n)
+	return nil
+}
+
+func (c *fakeCloud) AttachNetwork(_ context.Context, server, network string) error {
+	c.attached = append(c.attached, server+" "+network)
+	c.servers[server].PrivateIP = "10.0.1.99"
 	return nil
 }
 
@@ -106,6 +126,12 @@ type fakeHost struct {
 	runs    []string
 	puts    []string
 	failing string // a command containing this fails
+	output  string // what Output answers
+}
+
+func (h *fakeHost) Output(_ context.Context, cmd string, _ io.Writer) ([]byte, error) {
+	h.runs = append(h.runs, cmd)
+	return []byte(h.output), nil
 }
 
 func (h *fakeHost) Run(_ context.Context, cmd string) error {

@@ -71,6 +71,9 @@ func toServer(s *hcloud.Server) *deploy.Server {
 	if s.Location != nil {
 		out.Location = s.Location.Name
 	}
+	if len(s.PrivateNet) > 0 && s.PrivateNet[0].IP != nil {
+		out.PrivateIP = s.PrivateNet[0].IP.String()
+	}
 	return out
 }
 
@@ -103,6 +106,17 @@ func (h *Cloud) CreateServer(ctx context.Context, spec deploy.CreateSpec) (*depl
 	if fw == nil {
 		return nil, fmt.Errorf("firewall %q missing", spec.Firewall)
 	}
+	var networks []*hcloud.Network
+	if spec.Network != "" {
+		nw, _, err := h.c.Network.GetByName(ctx, spec.Network)
+		if err != nil {
+			return nil, err
+		}
+		if nw == nil {
+			return nil, fmt.Errorf("network %q missing", spec.Network)
+		}
+		networks = append(networks, nw)
+	}
 	var keys []*hcloud.SSHKey
 	for _, name := range spec.SSHKeys {
 		k, _, err := h.c.SSHKey.GetByName(ctx, name)
@@ -124,6 +138,7 @@ func (h *Cloud) CreateServer(ctx context.Context, spec deploy.CreateSpec) (*depl
 		UserData:   spec.UserData,
 		Labels:     spec.Labels,
 		Firewalls:  []*hcloud.ServerCreateFirewall{{Firewall: *fw}},
+		Networks:   networks,
 	})
 	if err != nil {
 		if hcloud.IsError(err, hcloud.ErrorCodeResourceUnavailable) {
@@ -166,12 +181,25 @@ func anywhere() []net.IPNet {
 	return []net.IPNet{*v4, *v6}
 }
 
-func (h *Cloud) CreateFirewall(ctx context.Context, name string, rules []deploy.FirewallRule) error {
+// SetFirewall creates the firewall with the rules, or sets an existing
+// one's rules to them.
+func (h *Cloud) SetFirewall(ctx context.Context, name string, rules []deploy.FirewallRule) error {
 	var hr []hcloud.FirewallRule
 	for _, r := range rules {
+		sources := anywhere()
+		if len(r.Sources) > 0 {
+			sources = nil
+			for _, cidr := range r.Sources {
+				_, n, err := net.ParseCIDR(cidr)
+				if err != nil {
+					return fmt.Errorf("firewall %s rule %s: %w", name, r.Description, err)
+				}
+				sources = append(sources, *n)
+			}
+		}
 		rule := hcloud.FirewallRule{
 			Direction:   hcloud.FirewallRuleDirectionIn,
-			SourceIPs:   anywhere(),
+			SourceIPs:   sources,
 			Protocol:    hcloud.FirewallRuleProtocol(r.Protocol),
 			Description: new(r.Description),
 		}
@@ -180,11 +208,66 @@ func (h *Cloud) CreateFirewall(ctx context.Context, name string, rules []deploy.
 		}
 		hr = append(hr, rule)
 	}
-	res, _, err := h.c.Firewall.Create(ctx, hcloud.FirewallCreateOpts{Name: name, Rules: hr})
+	fw, _, err := h.c.Firewall.GetByName(ctx, name)
 	if err != nil {
 		return err
 	}
-	return h.c.Action.WaitFor(ctx, res.Actions...)
+	if fw == nil {
+		res, _, err := h.c.Firewall.Create(ctx, hcloud.FirewallCreateOpts{Name: name, Rules: hr})
+		if err != nil {
+			return err
+		}
+		return h.c.Action.WaitFor(ctx, res.Actions...)
+	}
+	actions, _, err := h.c.Firewall.SetRules(ctx, fw, hcloud.FirewallSetRulesOpts{Rules: hr})
+	if err != nil {
+		return err
+	}
+	return h.c.Action.WaitFor(ctx, actions...)
+}
+
+// EnsureNetwork creates the network with its one cloud subnet unless a
+// network of that name exists.
+func (h *Cloud) EnsureNetwork(ctx context.Context, n deploy.Network) error {
+	nw, _, err := h.c.Network.GetByName(ctx, n.Name)
+	if err != nil || nw != nil {
+		return err
+	}
+	_, ipRange, err := net.ParseCIDR(n.IPRange)
+	if err != nil {
+		return err
+	}
+	_, subnet, err := net.ParseCIDR(n.Subnet)
+	if err != nil {
+		return err
+	}
+	_, _, err = h.c.Network.Create(ctx, hcloud.NetworkCreateOpts{Name: n.Name, IPRange: ipRange, Labels: map[string]string{"project": "gobank"},
+		Subnets: []hcloud.NetworkSubnet{{Type: hcloud.NetworkSubnetTypeCloud, IPRange: subnet, NetworkZone: hcloud.NetworkZone(n.Zone)}}})
+	return err
+}
+
+// AttachNetwork attaches the server to the network, an address given by
+// the provider from the subnet.
+func (h *Cloud) AttachNetwork(ctx context.Context, server, network string) error {
+	s, _, err := h.c.Server.GetByName(ctx, server)
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		return fmt.Errorf("no server %s", server)
+	}
+	nw, _, err := h.c.Network.GetByName(ctx, network)
+	if err != nil {
+		return err
+	}
+	if nw == nil {
+		return fmt.Errorf("no network %s", network)
+	}
+	action, _, err := h.c.Server.AttachToNetwork(ctx, s, hcloud.ServerAttachToNetworkOpts{Network: nw})
+	if err != nil {
+		return err
+	}
+	return h.c.Action.WaitFor(ctx, action)
 }
 
 func (h *Cloud) DeleteFirewall(ctx context.Context, name string) error {

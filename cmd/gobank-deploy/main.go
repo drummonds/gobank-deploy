@@ -125,6 +125,9 @@ Global flags (before the subcommand):
   -store DIR   deploy from this release store instead of building (the appliance);
                the repo's newest release is fetched into it before a deploy
   -dns DOMAIN  each environment is <env>.DOMAIN in Route 53 (default gobank.drummonds.net; "" for none)
+  -admit CIDRS the ranges every firewall admits to ssh (22) and the demo (1347), comma separated
+               (default $GOBANK_DEPLOY_ADMIT; empty admits anywhere); set on every up. The private
+               network gobank (10.0.0.0/16) is not filtered: a loader reaches a demo there
   -repo URL    gobank on the Forgejo: its newest tag is reported, and its release of that tag
                fetched into -store (default https://git.bytestone.uk/hum3/gobank; "" for none)
 
@@ -140,6 +143,7 @@ func main() {
 	buildDir := global.String("build", "build", "build directory")
 	storeDir := global.String("store", "", "release store to deploy from instead of building")
 	domain := global.String("dns", "gobank.drummonds.net", "Route 53 domain for <env>.DOMAIN hostnames; empty for none")
+	admit := global.String("admit", os.Getenv("GOBANK_DEPLOY_ADMIT"), "CIDRs the firewalls admit to ssh and the demo, comma separated; empty admits anywhere")
 	repoURL := global.String("repo", "https://git.bytestone.uk/hum3/gobank", "gobank repo on the Forgejo, for its newest tag; empty for none")
 	global.Usage = usage
 	_ = global.Parse(os.Args[1:])
@@ -218,6 +222,7 @@ func main() {
 			Repo:  repo,
 			Store: releaseStore,
 			DNS:   dns, Domain: *domain,
+			Admit: cidrs(*admit),
 			Dial:  &remote.Dialer{KnownHosts: filepath.Join(*buildDir, "known_hosts"), Identity: identity},
 			Build: builder,
 			Probe: &remote.Prober{},
@@ -426,6 +431,17 @@ func updateBenchmarkDoc(path string, rows []string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(out), 0o644)
+}
+
+// cidrs reads "a/29,b/32"; blanks are dropped.
+func cidrs(s string) []string {
+	var out []string
+	for part := range strings.SplitSeq(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // parseLadder reads "1,4,16"; a rung that does not parse is dropped and

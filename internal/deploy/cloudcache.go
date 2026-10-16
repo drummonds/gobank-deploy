@@ -75,6 +75,11 @@ func (c *CachedCloud) SetLabels(ctx context.Context, name string, labels map[str
 	return c.Cloud.SetLabels(ctx, name, labels)
 }
 
+func (c *CachedCloud) AttachNetwork(ctx context.Context, server, network string) error {
+	defer c.forget()
+	return c.Cloud.AttachNetwork(ctx, server, network)
+}
+
 func (c *CachedCloud) forget() {
 	c.mu.Lock()
 	c.listed, c.list = time.Time{}, nil

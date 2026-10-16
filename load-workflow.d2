@@ -1,0 +1,10 @@
+direction: right
+
+load: "load — one instance per environment scale date" {
+  create: "create" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/load.go"}
+  add: "add" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/load.go"}
+  loader: "loader" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/load.go"}
+  load: "load" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/load.go"}
+  remove: "remove" {link: "https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/load.go"}
+  create -> add -> loader -> load -> remove
+}

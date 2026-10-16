@@ -233,6 +233,39 @@ page (`/perf/scans/<run>`) with every route at each rung, worst route
 first, the routes not scanned with why. The run page and the journal
 link to it.
 
+### The load test: the load workflow
+
+`tp secrets gobank-deploy load <env> -scale large` load tests a fresh
+environment: `create` (the target at the scale, with an expiry), `add`
+(the demo stopped, its books filled to `-customers 10000`), `loader` (a
+box `<env>-loader` on the private network, ssh from `-admit` only, this
+program's own executable copied onto it — so it is arm64 from hydrogen and
+amd64 from the laptop), `load` (from the loader against the target's
+private address: the customer journey — login, the accounts screen, one
+account's screen — walked by each rung of `-ladder 1,2,5,10,20,50,100,200,500`
+users `-reps 10` times each, every walk the next customer, until a
+screen's p95 is over `-budget 2s` or a journey fails), `remove` (both
+boxes). The capacity is the last rung that held. The page has a Load test
+form beside Performance run; **Load tests** under Performance
+(`/perf/load`) charts the capacity against gobank's version, a line per
+scale, and a test's run page has every rung.
+
+`gobank-deploy journey -base URL` is the load test alone, from wherever
+it runs, against any BFF it can reach: the app password from
+`GOBANK_APP_PASSWORD`, the result as JSON on stdout, a line a rung on
+stderr. It needs no token; the loader runs it.
+
+### Firewalls and the private network
+
+Every server is on the private network `gobank` (10.0.0.0/16, created on
+first use) and has a firewall of its own name, set on every `up`: ssh
+(22) and the demo (1347) from the `-admit` ranges, ping from anywhere.
+`-admit` (or `GOBANK_DEPLOY_ADMIT`) is home's range, comma separated
+CIDRs; empty admits anywhere, as before. Set it on the laptop and in
+hydrogen's gokrazy flags alike, or one of them will lock the other out of
+the boxes it made. Traffic on the private network is not filtered. The
+decision table is on the docs page.
+
 ### Temporary environments: the demo workflow
 
 "Remove after" on either Create form runs the **demo** workflow instead of

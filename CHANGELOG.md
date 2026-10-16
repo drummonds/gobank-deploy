@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The load test (#26): the customer journey — login, the accounts screen,
+  one account's screen — defined as data and walked from a loader box
+  beside the target on a private network, up a ladder of concurrent
+  users (1 … 500), 10 journeys each, the customers in sequence through
+  the books so nothing comes from a cache, until a screen's p95 is over
+  2 s or a journey fails. The `load` workflow (`gobank-deploy load
+  <env>`, and a form on the page) creates the target, fills its books,
+  makes `<env>-loader`, climbs and removes both; the result is kept (load
+  schema v1) and shown on **Load tests** (`/perf/load`): capacity against
+  gobank's version, a line per scale. `gobank-deploy journey -base URL`
+  runs the climb alone from anywhere.
+- The private network `gobank` (10.0.0.0/16, subnet 10.0.1.0/24,
+  eu-central): every server is created on it, and an existing one is
+  attached on its next `up`.
+
+### Changed
+- Firewalls are declared and set on every `up`, not created once: ssh and
+  the demo from `-admit` (`GOBANK_DEPLOY_ADMIT`) only, ping from
+  anywhere. Empty `-admit` keeps the old open rules. Networking and the
+  firewall rules are documented as a d2 view and a decision table.
+
 ## [0.22.0] - 2026-10-16
 
  - Perf runs keep per-route counts and p95; routes over versions chart by scale (#35)

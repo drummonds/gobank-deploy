@@ -43,6 +43,40 @@ with secrets from Bitwarden.
 | Route 53 record | `drummonds.net` zone | `<env>.gobank.drummonds.net` → the server, TTL 60 because addresses are reused |
 | secrets | Bitwarden | `tp secrets` on the laptop; the gokrazy `Environment` on hydrogen |
 
+## Networking and firewalls
+
+Every server is on one private network, `gobank`, and carries a firewall
+of its own name. The firewalls filter the public interface only; traffic
+on the private network passes unfiltered. So a loader reaches a demo
+without the demo being open to the world, and home reaches both over
+their public addresses. The rules are declared, not created once: every
+`up` sets them, so a change here reaches standing environments on their
+next redeploy, and a server made before the network existed is attached
+to it then.
+
+![Networking](networking.svg)
+
+Who reaches what (inbound; *admitted* is the `-admit` ranges, home's /29;
+with `-admit` empty they are anywhere, as before):
+
+| From | To | Port | Allowed | Why |
+|------|----|------|---------|-----|
+| admitted | demo box | 22 ssh | yes | deploys, the console's token, journald |
+| admitted | demo box | 1347 demo | yes | the page's probe and about.json, a browser at home |
+| anywhere else | demo box | 22, 1347 | no | nothing outside home drives or browses a demo |
+| anywhere | demo box | icmp | yes | ping for diagnosis |
+| admitted | loader | 22 ssh | yes | install this program, run the journey, read its result |
+| anywhere else | loader | any tcp | no | the loader only answers home |
+| loader (10.0.1.x) | demo box | 1347 | yes, unfiltered | the load test over the private network |
+| anywhere | demo box | 443 | not yet | Caddy in front of the BFF for TLS: the public face, a later story |
+
+| Network choice | Value | Why |
+|----------------|-------|-----|
+| network | `gobank`, 10.0.0.0/16 | one for the project: every box can reach every other privately |
+| subnet | 10.0.1.0/24, cloud | the servers' addresses; a /24 holds far more boxes than run at once |
+| zone | eu-central | holds fsn1, nbg1 and hel1, every location `up` tries |
+| loader type | cax11 (arm64) or cx23 (amd64) | the smallest box of this host's architecture: the loader runs this program's own executable, copied over |
+
 ## What `up` does
 
 One sequence for create and redeploy; only the `-create` box starts billing.
@@ -95,6 +129,38 @@ What a hop is gated on, and what is recorded but not gated:
 Every drill is kept with its observations in the page's pglike database
 beside the workflow runs; the Drills page is the history, the DB Explorer
 the tables.
+
+## The load test
+
+The customer app's journey walked by many customers at once, from a
+loader box beside the target on the private network, up a ladder of
+concurrent users until a screen is too slow.
+
+![Load workflow](load-workflow.svg)
+
+| Term | Meaning |
+|------|---------|
+| journey | the customer's screens in order, defined as data (`load.Customer`): login, accounts (the balances), account (one account's details and transactions) |
+| screen | one request of the journey, timed body and all |
+| target | the environment under load: a fresh one at a scale, its books filled to 10,000 customers |
+| loader | the box the load comes from, `<target>-loader`: this program, no demo |
+| rung | so many users walking at once, each the journey `-reps` times (10), every walk the next customer in sequence, cust-001 onwards and round, so nothing is answered from a cache |
+| ladder | the rungs in order: 1, 2, 5, 10, 20, 50, 100, 200, 500 users |
+| budget | the p95 a screen may reach and the rung still hold: 2s |
+| breach | why a rung is unacceptable: a journey failed, or a screen's p95 over the budget |
+| capacity | the users at the last rung that held; the climb stops at the first breach |
+
+| At a rung | Outcome |
+|-----------|---------|
+| every journey completed, every screen's p95 ≤ budget | holds: capacity is now this rung's users; climb on |
+| a journey failed (refused, timed out after 30s, no token) | breach: the climb stops, capacity stays at the rung below |
+| a screen's p95 > budget | breach: the climb stops, capacity stays at the rung below |
+| the top rung holds | capacity is the top rung; the breach is blank |
+| the first rung breaches | capacity 0 |
+
+The simulation is stopped for the load, so the figures are the BFF's
+alone. The Load tests page charts the capacity against gobank's version,
+a line per scale; a test's run page has every rung.
 
 ## The Workflows page
 

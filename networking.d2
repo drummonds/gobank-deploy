@@ -1,0 +1,35 @@
+# One question: which traffic reaches which box, and what lets it? The
+# firewalls filter the public interfaces only; the private network is not
+# filtered. What an up does is deploy-sequence.d2.
+
+direction: down
+
+classes: {
+  place: {style.border-radius: 8; style.font-size: 15}
+  part: {shape: rectangle; style.border-radius: 6}
+  closed: {style.stroke-dash: 4; style.font-color: "#888"}
+}
+
+home: "Home — the admitted range (-admit, a /29)" {
+  class: place
+  laptop: "Laptop\nCLI and page" {class: part}
+  hydrogen: "hydrogen\nthe page and its workflows" {class: part}
+}
+
+world: "Internet" {class: part}
+
+hetzner: "Hetzner Cloud, eu-central" {
+  class: place
+  net: "private network gobank 10.0.0.0/16 · subnet 10.0.1.0/24 · not filtered" {
+    class: place
+    target: "gobank-<env>\nPostgreSQL, demo :1347\nfirewall gobank-<env>" {class: part}
+    loader: "gobank-<env>-loader\nthis program, no demo\nfirewall gobank-<env>-loader" {class: part}
+  }
+}
+
+home.laptop -> hetzner.net.target: "22 ssh · 1347 demo"
+home.hydrogen -> hetzner.net.target: "22 ssh · 1347 demo"
+home.hydrogen -> hetzner.net.loader: "22 ssh: install, run the journey"
+hetzner.net.loader -> hetzner.net.target: "1347 over 10.0.1.x: the load"
+world -> hetzner.net.target: "icmp only" {class: closed}
+world -> hetzner.net.target: "443 · later: Caddy in front of the BFF" {class: closed}

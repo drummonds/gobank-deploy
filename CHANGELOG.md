@@ -14,10 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the books so nothing comes from a cache, until a screen's p95 is over
   2 s or a journey fails. The `load` workflow (`gobank-deploy load
   <env>`, and a form on the page) creates the target, fills its books,
-  makes `<env>-loader` in the target's location, climbs and removes both; the result is kept (load
-  schema v1) and shown on **Load tests** (`/perf/load`): capacity against
-  gobank's version, a line per scale. `gobank-deploy journey -base URL`
-  runs the climb alone from anywhere.
+  makes `<env>-loader` in the target's location, climbs and removes
+  both; the result is kept (load schema v1) and shown on **Load tests**
+  (`/perf/load`): capacity against gobank's version, a line per scale.
+  `gobank-deploy journey -base URL` runs the climb alone from anywhere.
 - The private network `gobank` (10.128.0.0/16, subnet 10.128.1.0/24,
   eu-central): every server is created on it, and an existing one is
   attached on its next `up`.

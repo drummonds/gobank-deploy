@@ -55,3 +55,5 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace git.bytestone.uk/hum3/go-span => /home/hum3/git/hum3/go-span

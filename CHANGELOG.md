@@ -6,10 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-
-- The load test fills the books with customers enough for the top rung (500 by default), not 10,000, and a climb whose first rung completed no journey fails the test with why instead of recording capacity 0 (#60)
-
 ## [0.30.0] - 2026-10-17
 
  - Perf runs make a payment a customer a day (up to 10,000), not gobank's default 10 a day for the whole bank; prefixWriter.Write reports the full count on success, so io.Copy and other count-checking callers no longer fail with a short write; Perf requests the staff pages in rotation during the days stage — dashboard, P&L, balance sheet, BBSI, explorer, customers, payments and treasury — so their counts and p95s at scale land in the record; Spans on /perf show only the precision they need (1h46m51s, not 1h46m51.360895289s), via go-span

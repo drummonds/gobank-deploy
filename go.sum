@@ -2,6 +2,8 @@ git.bytestone.uk/hum3/go-dbexplorer v0.4.0 h1:j0LY2plOCQOMEanEHA8sq51xxBBgAK9u6t
 git.bytestone.uk/hum3/go-dbexplorer v0.4.0/go.mod h1:U0RnGTNe0Sfk1iGvIkJ4biXUsi6pqJrLmrblMwU8Jco=
 git.bytestone.uk/hum3/go-postgres v0.10.0 h1:5iklp38PBHdrk1GQmBCRqFwwgDIYhPPd1/o9LrPBy4I=
 git.bytestone.uk/hum3/go-postgres v0.10.0/go.mod h1:truiim+EVI6y2zj5ziyEkvu/CCX2ruBlGJ5H4hTrOHE=
+git.bytestone.uk/hum3/go-span v0.2.0 h1:OfKgtIuKKPBTQtX8cgVcZKiDJerbTQ5hEvQaRAAE7Z0=
+git.bytestone.uk/hum3/go-span v0.2.0/go.mod h1:qLM41f4pqnPM9kO3dgkGOqLg40zmiwbmg2vYxhl+peg=
 git.bytestone.uk/hum3/gobank-db v0.3.0 h1:4nZvoxHQBzkNmPSK2ORAt25ygirqjTgoTK6O/tzsoGM=
 git.bytestone.uk/hum3/gobank-db v0.3.0/go.mod h1:wCD+SdqmWlwoKc55VUnC/X3bNtkp3KedWD1cja0D9QA=
 git.bytestone.uk/hum3/gobank-workflow v0.5.0 h1:2TqXls3t+iBmU0aNrYWDhKRi3fHdu13vD/+hLYtt6eU=

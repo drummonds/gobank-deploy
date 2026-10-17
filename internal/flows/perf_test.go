@@ -543,3 +543,22 @@ func TestPerfPressesRunAgainWhenTheDemoStopsMidway(t *testing.T) {
 		t.Errorf("starts = %d; want the first press and one after the stop", h.con.starts)
 	}
 }
+
+// A prefixWriter reports every byte it was given as written, as the
+// io.Writer contract requires, so a copy into one does not fail short.
+func TestPrefixWriterReportsTheFullCount(t *testing.T) {
+	var out strings.Builder
+	w := &prefixWriter{prefix: "> ", out: &out, mu: &sync.Mutex{}}
+	if n, err := w.Write([]byte("a\nb\n")); n != 4 || err != nil {
+		t.Errorf("Write = %d, %v; want 4, nil", n, err)
+	}
+	if _, err := io.Copy(w, strings.NewReader("c\n")); err != nil {
+		t.Errorf("io.Copy: %v", err)
+	}
+	if n, err := w.Write([]byte("d\ne")); n != 3 || err != nil {
+		t.Errorf("Write = %d, %v; want 3, nil", n, err)
+	}
+	if got, want := out.String(), "> a\n> b\n> c\n> d\n> e"; got != want {
+		t.Errorf("out = %q; want %q", got, want)
+	}
+}

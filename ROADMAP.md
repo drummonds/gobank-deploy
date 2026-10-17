@@ -167,4 +167,3 @@ Small correctness and simplification items in the engine's own code,
 found in review rather than by a failing deploy; none changes behaviour
 an operator sees.
 - #22 probe.Measure on errgroup: limit, first error and cancel from the library instead of hand-rolled slots, WaitGroup and mutex
-- #23 prefixWriter.Write returns 0 after a full write, breaking the io.Writer contract

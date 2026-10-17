@@ -110,15 +110,41 @@ func (f *fakeOperator) Drills(context.Context, int) ([]drills.Drill, error) {
 	return f.drills, nil
 }
 
-func (f *fakeOperator) Run(_ context.Context, id string) (*wf.RunRecord, []wf.StepResult, error) {
+// store is the runs and steps as a store holds them: rebuilt per call, so a
+// test sets runs and steps directly and every read sees the engine's own
+// filtering and order.
+func (f *fakeOperator) store(ctx context.Context) *wf.MemStore {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	s := wf.NewMemStore()
 	for _, r := range f.runs {
-		if r.ID == id {
-			return &r, f.steps[id], nil
+		if err := s.CreateRun(ctx, &r); err != nil {
+			panic(err)
+		}
+		for _, st := range f.steps[r.ID] {
+			st.RunID = r.ID
+			if err := s.RecordStep(ctx, &st); err != nil {
+				panic(err)
+			}
 		}
 	}
-	return nil, nil, nil
+	return s
+}
+
+func (f *fakeOperator) GetRun(ctx context.Context, id string) (*wf.RunRecord, error) {
+	return f.store(ctx).GetRun(ctx, id)
+}
+
+func (f *fakeOperator) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error) {
+	return f.store(ctx).ListSteps(ctx, runID)
+}
+
+func (f *fakeOperator) ListRuns(ctx context.Context, rf wf.RunFilter) ([]wf.RunRecord, error) {
+	return f.store(ctx).ListRuns(ctx, rf)
+}
+
+func (f *fakeOperator) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
+	return f.store(ctx).CountRuns(ctx)
 }
 
 func newFakeOperator() *fakeOperator {
@@ -158,25 +184,6 @@ func (f *fakeOperator) Fetch(_ context.Context, tag string) (string, error) {
 		return tag, nil
 	}
 	return f.fetched, f.fetchErr
-}
-
-func (f *fakeOperator) Runs(context.Context, int) ([]wf.RunRecord, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.runs, nil
-}
-
-func (f *fakeOperator) Counts(context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	counts := map[wf.WorkflowType]wf.RunCounts{}
-	for _, r := range f.runs {
-		if counts[r.WorkflowType] == nil {
-			counts[r.WorkflowType] = wf.RunCounts{}
-		}
-		counts[r.WorkflowType][r.Status]++
-	}
-	return counts, nil
 }
 
 func (f *fakeOperator) Environments(context.Context) ([]deploy.Environment, error) {
@@ -966,7 +973,7 @@ func TestDrillsPageIsTheHistoryWithTheLineForTheRecord(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"Sun 4 Oct 2026 10:00 · prod · v0.7.0 → v0.8.0", "42s", "39s", "unrecorded", "no about.json", "intact", `href="/workflows/run-7">details</a>`, "2026-10-04 prod: v0.7.0 → v0.8.0, upgraded 42s, forward 39s"} {
+	for _, want := range []string{"Sun 4 Oct 2026 10:00 · prod · v0.7.0 → v0.8.0", "42s", "39s", "unrecorded", "no about.json", "intact", `href="/workflows/instances/run-7">details</a>`, "2026-10-04 prod: v0.7.0 → v0.8.0, upgraded 42s, forward 39s"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("drills page missing %q:\n%s", want, body)
 		}
@@ -998,7 +1005,7 @@ func TestRunPageShowsTheStepsAndADrillsObservations(t *testing.T) {
 	op.steps = map[string][]wf.StepResult{"run-7": {{StepName: "prepare", Status: wf.StatusCompleted, DurationNs: int64(3 * time.Second)}, {StepName: "upgrade", Status: wf.StatusFailed, Error: "serving v0.7.0, expected v0.8.0"}}}
 	op.drills = []drills.Drill{sampleDrill()}
 	op.mu.Unlock()
-	code, body := get(t, ts, "/workflows/run-7")
+	code, body := get(t, ts, "/workflows/instances/run-7")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
@@ -1007,11 +1014,11 @@ func TestRunPageShowsTheStepsAndADrillsObservations(t *testing.T) {
 			t.Errorf("run page missing %q:\n%s", want, body)
 		}
 	}
-	if code, _ := get(t, ts, "/workflows/nope"); code != 404 {
+	if code, _ := get(t, ts, "/workflows/instances/nope"); code != 404 {
 		t.Errorf("unknown run: status %d", code)
 	}
 	_, body = get(t, ts, "/")
-	if !strings.Contains(body, `href="/workflows/run-7"`) {
+	if !strings.Contains(body, `href="/workflows/instances/run-7"`) {
 		t.Error("the runs table links each instance")
 	}
 }
@@ -1104,7 +1111,7 @@ func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"Tue 6 Oct 2026 09:00", "perf1", "large", "cx53", "32 GB", "v0.12.0", "48,000", "80.5", "9,000,000", "96,000", `href="/workflows/run-9"`,
+	for _, want := range []string{"Tue 6 Oct 2026 09:00", "perf1", "large", "cx53", "32 GB", "v0.12.0", "48,000", "80.5", "9,000,000", "96,000", `href="/workflows/instances/run-9"`,
 		// The spans only as precise as they need to be: Adding took, Days took, Days run, Last day.
 		"<td>1h46m51s</td>", "<td>2m3.5s</td>", "<td>340d</td>", "<td>16.23s over 96,000 accounts</td>",
 		"| 2026-10-06 | v0.12.0 | large | cx53: 32 GB | 48,000 | 80.5 | 340d | 9,000,000 | 16.23s over 96,000 accounts |"} {
@@ -1150,13 +1157,13 @@ func TestExplorerIsServedInThePageLayoutWhenConfigured(t *testing.T) {
 
 // --- The Workflows tab ----------------------------------------------------------
 
-// The Workflows page is the engine's view of this program: each workflow
-// it runs described from its definition (steps, code, diagram), with the
-// count of its instances in every state and the instances themselves.
-func TestWorkflowsPageDescribesEachDefinitionWithItsInstances(t *testing.T) {
+// The Workflows tab is gobank-workflow's pages in this program's layout:
+// the instances as a work queue, and this program's definitions only,
+// each described from its steps with its picture.
+func TestWorkflowsTabIsTheEnginesPagesInThisLayout(t *testing.T) {
 	ts, op := newTestServer(t)
 	for _, path := range []string{"/", "/drills", "/about", "/perf"} {
-		if _, body := get(t, ts, path); !strings.Contains(body, `href="/workflows"`) {
+		if _, body := get(t, ts, path); !strings.Contains(body, `href="/workflows/"`) {
 			t.Errorf("%s has no Workflows tab", path)
 		}
 	}
@@ -1164,46 +1171,49 @@ func TestWorkflowsPageDescribesEachDefinitionWithItsInstances(t *testing.T) {
 	op.runs = []wf.RunRecord{
 		{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: service not answering", StartedAt: time.Now()},
 		{ID: "run-3", WorkflowType: "demo", Key: "demo@2026-09-27T14:00:00Z", Status: wf.StatusCompleted, StartedAt: time.Now().Add(-time.Hour), CompletedAt: time.Now()},
-		{ID: "run-2", WorkflowType: "demo", Key: "demo@2026-09-26T14:00:00Z", Status: wf.StatusFailed, Error: "create: out of stock", StartedAt: time.Now().Add(-25 * time.Hour)},
 	}
 	op.mu.Unlock()
-	code, body := get(t, ts, "/workflows")
+	code, queue := get(t, ts, "/workflows/")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{
-		`id="demo"`, `id="drill"`, `id="perf"`,
-		"A temporary environment", "one instance per environment@expiry",
-		`src="/assets/drill-workflow.svg"`, `src="/assets/perf-workflow.svg"`,
-		"up -create with the expiry label", `href="https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"`,
-		`href="/workflows/run-7"`, `href="/workflows/run-3"`, `href="/workflows/run-2"`,
-		"service not answering", "out of stock",
-		"No instances yet",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("workflows page missing %q:\n%s", want, body)
+	for _, want := range []string{`class="navbar-item is-active" href="/workflows/"`, `href="/workflows/instances/run-7"`, `href="/workflows/instances/run-3"`, "service not answering"} {
+		if !strings.Contains(queue, want) {
+			t.Errorf("instances page missing %q:\n%s", want, queue)
 		}
 	}
-	// The demo section counts its two instances; the perf section has none.
-	demo := body[strings.Index(body, `id="demo"`):strings.Index(body, `id="drill"`)]
-	for _, want := range []string{"completed <strong>1</strong>", "failed <strong>1</strong>", "instances <strong>2</strong>"} {
-		if !strings.Contains(demo, want) {
-			t.Errorf("demo section missing %q:\n%s", want, demo)
-		}
+	if resp, err := ts.Client().Get(ts.URL + "/workflows"); err != nil {
+		t.Fatal(err)
+	} else if resp.Body.Close(); resp.StatusCode/100 != 3 || resp.Header.Get("Location") != "/workflows/" {
+		t.Errorf("/workflows: status %d location %q, want a redirect to /workflows/", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if strings.Contains(demo, "No instances yet") {
-		t.Error("the demo section has instances")
+
+	_, defs := get(t, ts, "/workflows/definitions")
+	for _, want := range []string{`href="/workflows/definitions/demo"`, `href="/workflows/definitions/drill"`, `href="/workflows/definitions/perf"`, "A temporary environment"} {
+		if !strings.Contains(defs, want) {
+			t.Errorf("definitions page missing %q:\n%s", want, defs)
+		}
 	}
 	// The engine's own definitions, which this program never runs, are not shown.
-	if strings.Contains(body, "daily_update") || strings.Contains(body, `id="release"`) {
+	if strings.Contains(defs, "daily_update") || strings.Contains(defs, "definitions/release") {
 		t.Error("only this program's workflows belong on the page")
+	}
+
+	_, drill := get(t, ts, "/workflows/definitions/drill")
+	for _, want := range []string{`src="/workflows/definitions/drill/diagram.svg"`, `href="https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"`, `href="/workflows/instances/run-7"`} {
+		if !strings.Contains(drill, want) {
+			t.Errorf("drill definition missing %q:\n%s", want, drill)
+		}
+	}
+	if code, svg := get(t, ts, "/workflows/definitions/drill/diagram.svg"); code != 200 || !strings.Contains(svg, "<svg") {
+		t.Errorf("drill picture: status %d", code)
 	}
 }
 
-// An instance page lays the recorded steps over its definition: every
-// step in order, the ones not reached marked so, each with what it does;
-// and the instance is downloadable as d2 with the steps coloured by state.
-func TestRunPageShowsEveryDefinitionStepWithItsState(t *testing.T) {
+// An instance page lays the recorded steps over its definition, every step
+// in order with the ones not reached marked so, and the instance is
+// downloadable as d2 with the steps coloured by state.
+func TestInstancePageShowsEveryDefinitionStepWithItsState(t *testing.T) {
 	ts, op := newTestServer(t)
 	op.mu.Lock()
 	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod v0.7.0→v0.8.0 2026-10-04", Status: wf.StatusFailed, Error: "upgrade: serving v0.7.0, expected v0.8.0", StartedAt: time.Now()}}
@@ -1213,62 +1223,71 @@ func TestRunPageShowsEveryDefinitionStepWithItsState(t *testing.T) {
 		{StepName: "upgrade", Status: wf.StatusFailed, DurationNs: int64(80 * time.Second), Error: "serving v0.7.0, expected v0.8.0"},
 	}}
 	op.mu.Unlock()
-	code, body := get(t, ts, "/workflows/run-7")
+	code, body := get(t, ts, "/workflows/instances/run-7")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
 	for _, want := range []string{
-		`href="/workflows#drill"`,
-		"<td>1</td><td><strong>prepare</strong>", "a day long enough to upgrade inside", "<td>completed</td><td>3s</td>",
-		"<td>3</td><td><strong>upgrade</strong>", "<td>failed</td><td>1m20s</td>",
-		"<td>4</td><td><strong>rollback</strong>", "<td>5</td><td><strong>forward</strong>", "not run",
+		`class="navbar-item is-active" href="/workflows/"`,
+		"prepare", "a day long enough to upgrade inside", "rollback", "forward", "1m20s", "not run",
 		`href="https://git.bytestone.uk/hum3/gobank-deploy/src/branch/main/internal/flows/drill.go"`,
-		`href="/workflows/run-7/diagram.d2"`,
+		`href="/workflows/instances/run-7/diagram.d2"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("run page missing %q:\n%s", want, body)
+			t.Errorf("instance page missing %q:\n%s", want, body)
 		}
 	}
-	if n := strings.Count(body, "not run"); n != 2 {
-		t.Errorf("rollback and forward were not run; %d steps marked", n)
+	if code, _ := get(t, ts, "/workflows/instances/nope"); code != 404 {
+		t.Errorf("unknown instance: status %d", code)
 	}
-	resp, err := ts.Client().Get(ts.URL + "/workflows/run-7/diagram.d2")
-	if err != nil {
-		t.Fatal(err)
+	code, d2 := get(t, ts, "/workflows/instances/run-7/diagram.d2")
+	if code != 200 {
+		t.Fatalf("diagram: status %d", code)
 	}
-	defer resp.Body.Close()
-	d2, _ := io.ReadAll(resp.Body)
-	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != 200 || !strings.HasPrefix(ct, "text/plain") {
-		t.Errorf("diagram: status %d, content type %q", resp.StatusCode, ct)
-	}
-	for _, want := range []string{"prepare -> before -> upgrade -> rollback -> forward", "upgrade.class: failed", "rollback.class: not_run", "prepare.class: completed"} {
-		if !strings.Contains(string(d2), want) {
+	for _, want := range []string{"upgrade.class: failed", "rollback.class: not_run", "prepare.class: completed"} {
+		if !strings.Contains(d2, want) {
 			t.Errorf("instance d2 missing %q:\n%s", want, d2)
 		}
 	}
-	if code, _ := get(t, ts, "/workflows/nope/diagram.d2"); code != 404 {
-		t.Errorf("unknown run's diagram: status %d", code)
+}
+
+// Links to an instance from before the pages moved still reach it.
+func TestOldInstanceLinksRedirect(t *testing.T) {
+	ts, op := newTestServer(t)
+	op.mu.Lock()
+	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod", Status: wf.StatusCompleted, StartedAt: time.Now()}}
+	op.mu.Unlock()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for old, now := range map[string]string{"/workflows/run-7": "/workflows/instances/run-7", "/workflows/run-7/diagram.d2": "/workflows/instances/run-7/diagram.d2"} {
+		resp, err := client.Get(ts.URL + old)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMovedPermanently || resp.Header.Get("Location") != now {
+			t.Errorf("%s: status %d location %q, want %s", old, resp.StatusCode, resp.Header.Get("Location"), now)
+		}
 	}
 }
 
 // With the explorer configured, an instance links to its rows in the
 // workflow_steps table.
-func TestRunPageLinksItsStepsInTheExplorerWhenConfigured(t *testing.T) {
+func TestInstancePageLinksItsStepsInTheExplorerWhenConfigured(t *testing.T) {
 	ts, op := newTestServerWith(t, func(s *Server) {
 		s.Explorer = func(_ context.Context, rawURL string) string { return "<p>explorer " + rawURL + "</p>" }
 	})
 	op.mu.Lock()
 	op.runs = []wf.RunRecord{{ID: "run-7", WorkflowType: "drill", Key: "prod", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
-	_, body := get(t, ts, "/workflows/run-7")
+	_, body := get(t, ts, "/workflows/instances/run-7")
 	if !strings.Contains(body, `href="/internal/explorer/workflow_steps?filter=run_id&amp;value=run-7"`) {
-		t.Errorf("run page does not link the explorer:\n%s", body)
+		t.Errorf("instance page does not link the explorer:\n%s", body)
 	}
 	ts2, op2 := newTestServer(t)
 	op2.mu.Lock()
 	op2.runs = op.runs
 	op2.mu.Unlock()
-	if _, body := get(t, ts2, "/workflows/run-7"); strings.Contains(body, "/internal/explorer") {
+	if _, body := get(t, ts2, "/workflows/instances/run-7"); strings.Contains(body, "/internal/explorer") {
 		t.Error("no explorer, no link")
 	}
 }
@@ -1334,7 +1353,7 @@ func TestScanPageIsOneScanWithEveryRouteWorstFirst(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"prod", "cx33", "8 GB", "v0.54.0", "3,000", "1, 4", `href="/workflows/scan-2"`,
+	for _, want := range []string{"prod", "cx33", "8 GB", "v0.54.0", "3,000", "1, 4", `href="/workflows/instances/scan-2"`,
 		"/customers/search", "600ms", "300ms", "12.0", "150ms", "needs a path parameter"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scan page missing %q:\n%s", want, body)
@@ -1354,7 +1373,7 @@ func TestRunAndJournalPagesLinkToTheScan(t *testing.T) {
 	op.scenarios = []scenario.Run{scanRun("scan-2", 2, "v0.54.0", 100*time.Millisecond, 600*time.Millisecond, "")}
 	op.runs = []wf.RunRecord{{ID: "scan-2", WorkflowType: "scan", Key: "prod 2026-10-02", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
-	for _, path := range []string{"/workflows/scan-2", "/about/journal", "/perf"} {
+	for _, path := range []string{"/workflows/instances/scan-2", "/about/journal", "/perf"} {
 		if _, body := get(t, ts, path); !strings.Contains(body, `href="/perf/scans/scan-2"`) && !strings.Contains(body, `href="/perf/scans"`) {
 			t.Errorf("%s does not reach the scan:\n%s", path, body)
 		}
@@ -1384,7 +1403,7 @@ func TestRunPageShowsAPerfRunsRoutes(t *testing.T) {
 	op.perfRuns = routesRuns()
 	op.runs = []wf.RunRecord{{ID: "run-3", WorkflowType: "perf", Key: "perf-small small 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
-	_, body := get(t, ts, "/workflows/run-3")
+	_, body := get(t, ts, "/workflows/instances/run-3")
 	for _, want := range []string{"<code>GET /v1/health</code></a></td><td>1,200</td><td>9ms</td>", "<code>/customers/</code></a></td><td>30</td><td>77ms</td>", `href="/perf/routes?route=GET%20%2fv1%2fhealth"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page missing %q:\n%s", want, body)
@@ -1402,7 +1421,7 @@ func TestRunPageShowsAPerfRunsTableSizes(t *testing.T) {
 		Tables: []perf.Table{{Name: "customers", Rows: 10_000, Bytes: 3 << 20}, {Name: "movements", Rows: 44_000_000, Bytes: 6 << 30}}, DatabaseBytes: 8 << 30}}
 	op.runs = []wf.RunRecord{{ID: "run-3", WorkflowType: "perf", Key: "perf-small small 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
-	_, body := get(t, ts, "/workflows/run-3")
+	_, body := get(t, ts, "/workflows/instances/run-3")
 	for _, want := range []string{"8.0 GB on disk", "<td><code>movements</code></td><td>44,000,000</td><td>6.0 GB</td><td>75%</td>", "<td><code>customers</code></td><td>10,000</td><td>3.0 MB</td><td>0%</td>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page missing %q:\n%s", want, body)
@@ -1415,7 +1434,7 @@ func TestRunPageShowsAPerfRunsTableSizes(t *testing.T) {
 	op.mu.Lock()
 	op.perfRuns[0].Tables, op.perfRuns[0].DatabaseBytes = nil, 0
 	op.mu.Unlock()
-	if _, body := get(t, ts, "/workflows/run-3"); strings.Contains(body, "Share of database") {
+	if _, body := get(t, ts, "/workflows/instances/run-3"); strings.Contains(body, "Share of database") {
 		t.Error("a run without sizes shows no tables")
 	}
 }
@@ -1514,7 +1533,7 @@ func TestLoadPageListsTheTestsAndChartsCapacityByVersion(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{`href="/workflows/load-3"`, "load3", "ccx33, 32 GB", "v0.57.0", "10,000", "200 users: login p95 2.6s over 2s",
+	for _, want := range []string{`href="/workflows/instances/load-3"`, "load3", "ccx33, 32 GB", "v0.57.0", "10,000", "200 users: login p95 2.6s over 2s",
 		"<svg", "small (cx23, 4 GB)", "large (ccx33, 32 GB)", "<tr><td>v0.56.0</td><td>10</td><td></td></tr>", "<tr><td>v0.57.0</td><td>20</td><td>100</td></tr>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("load page missing %q:\n%s", want, body)
@@ -1535,7 +1554,7 @@ func TestRunPageShowsALoadTestsRungs(t *testing.T) {
 	op.loadRuns = loadRuns()
 	op.runs = []wf.RunRecord{{ID: "load-3", WorkflowType: "load", Key: "load3 large 2026-10-16", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
-	_, body := get(t, ts, "/workflows/load-3")
+	_, body := get(t, ts, "/workflows/instances/load-3")
 	for _, want := range []string{"Capacity <strong>100 users</strong>", "200 users: login p95 2.6s over 2s", "<th>login p95</th><th>accounts p95</th><th>account p95</th>",
 		"<td>100</td><td>1,000</td><td>0</td><td>1.8s</td><td>300ms</td><td>400ms</td><td>2.5s</td><td>12.5</td>"} {
 		if !strings.Contains(body, want) {

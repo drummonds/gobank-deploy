@@ -116,16 +116,18 @@ where the manual drill runs: a store to roll back
 from and a newer release than the one serving. A failed hop fails the run
 and says why; pressing Drill again the same day resumes from that hop.
 The **Drills** page is the history, one line per drill ready for the
-story's record; each run's steps are at `/workflows/<id>`, the tables at
+story's record; each run's steps are at `/workflows/instances/<id>`, the tables at
 `/internal/explorer`.
 
-The **Workflows** page is the engine's view of all three workflows: each
-definition with its diagram, its steps and the code behind each, the
-count of its instances in every state and the instances themselves,
-newest first. An instance page lays the steps as they ran over the
-definition, so a step not reached shows as *not run*, and offers the
-instance as d2 with the steps coloured by state
-(`/workflows/<id>/diagram.d2`) for `d2 diagram.d2 out.svg`.
+The **Workflows** pages are gobank-workflow's own (its `view` package) in
+this page's layout. Instances are a work queue, those in hand first,
+filtered by workflow, status, date and key. Definitions each have their
+diagram, their steps with the code behind each, and their instances. An
+instance page lays the steps as they ran over the definition, so a step not
+reached shows as *not run*. Under it come what only this program records:
+a drill's observations, a scan's routes, a load test's climb, a perf run's
+figures. Each instance is also offered as d2 with the steps coloured by state
+(`/workflows/instances/<id>/diagram.d2`) for `d2 diagram.d2 out.svg`.
 
 The page keeps its workflow runs and drills in a pglike (SQLite file)
 database, `-db`, default `<-build>/gobank-deploy.db`: on hydrogen that is

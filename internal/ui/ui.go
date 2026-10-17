@@ -23,7 +23,7 @@ import (
 
 	"git.bytestone.uk/hum3/go-span"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
-	"git.bytestone.uk/hum3/gobank-workflow/diagram"
+	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/gobank-deploy/internal/deploy"
@@ -53,10 +53,8 @@ type Operator interface {
 	Down(ctx context.Context, env deploy.Environment, out io.Writer) error
 	// Demo runs the temporary-environment workflow for env until env.Expires.
 	Demo(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
-	// Runs lists recent workflow runs, most recent first.
-	Runs(ctx context.Context, limit int) ([]wf.RunRecord, error)
-	// Counts is the number of runs of each workflow type in every state.
-	Counts(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error)
+	// Reader is the workflow store, read: the runs, their counts and steps.
+	view.Reader
 	// Releases is the newest tag on the repo against what is deployable here.
 	Releases(ctx context.Context) (deploy.Releases, error)
 	// Fetch puts a release into the store and makes it the next deploy,
@@ -68,8 +66,6 @@ type Operator interface {
 	Drill(ctx context.Context, env deploy.Environment, out io.Writer) error
 	// Drills lists recent drills with their observations, most recent first.
 	Drills(ctx context.Context, limit int) ([]drills.Drill, error)
-	// Run is one workflow run with its steps; nil when there is none.
-	Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error)
 	// Perf runs gobank's performance run: a new environment at scale,
 	// measured to the targets and removed.
 	Perf(ctx context.Context, env deploy.Environment, scale string, t PerfTargets, out io.Writer) error
@@ -143,12 +139,20 @@ func (o Ops) Demo(ctx context.Context, env deploy.Environment, scale string, out
 	return o.Flows.Run(ctx, env, scale, out)
 }
 
-func (o Ops) Runs(ctx context.Context, limit int) ([]wf.RunRecord, error) {
-	return o.Flows.Store.ListRuns(ctx, limit)
+func (o Ops) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
+	return o.Flows.Store.ListRuns(ctx, f)
 }
 
-func (o Ops) Counts(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
+func (o Ops) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
 	return o.Flows.Store.CountRuns(ctx)
+}
+
+func (o Ops) GetRun(ctx context.Context, id string) (*wf.RunRecord, error) {
+	return o.Flows.Store.GetRun(ctx, id)
+}
+
+func (o Ops) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error) {
+	return o.Flows.Store.ListSteps(ctx, runID)
 }
 
 func (o Ops) Drill(ctx context.Context, env deploy.Environment, out io.Writer) error {
@@ -157,15 +161,6 @@ func (o Ops) Drill(ctx context.Context, env deploy.Environment, out io.Writer) e
 
 func (o Ops) Drills(ctx context.Context, limit int) ([]drills.Drill, error) {
 	return o.Drill_.Drills.List(ctx, limit)
-}
-
-func (o Ops) Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error) {
-	run, err := o.Flows.Store.GetRun(ctx, id)
-	if err != nil || run == nil {
-		return nil, nil, err
-	}
-	steps, err := o.Flows.Store.ListSteps(ctx, id)
-	return run, steps, err
 }
 
 // DeployerFactory adapts deploy.Deployer to Operator: each job gets a
@@ -309,70 +304,6 @@ func viewRun(rec wf.RunRecord) runView {
 	return v
 }
 
-// definitionView is a workflow as the Workflows page shows it: what the
-// definition says, its steps, and the instances recorded against it.
-type definitionView struct {
-	Type        string
-	Description string
-	InstanceKey string
-	Steps       []definitionStepView
-	Counts      []countView
-	Total       int
-	Runs        []runView
-}
-
-// definitionStepView is one step of a definition; on an instance page
-// also the state the instance left it in.
-type definitionStepView struct {
-	Number      int
-	Name        string
-	Description string
-	Source      string
-	Status      string // "not run" when the instance has no record of it
-	Duration    string
-	Error       string
-}
-
-type countView struct {
-	Status string
-	N      int
-}
-
-// viewDefinition lays the runs of d's type over its definition.
-func viewDefinition(d wf.Definition, counts wf.RunCounts, runs []wf.RunRecord) definitionView {
-	v := definitionView{Type: string(d.Type), Description: d.Description, InstanceKey: d.InstanceKey, Steps: viewDefinitionSteps(d, nil), Total: counts.Total()}
-	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusCompleted, wf.StatusFailed} {
-		v.Counts = append(v.Counts, countView{Status: string(st), N: counts[st]})
-	}
-	for _, rec := range runs {
-		if rec.WorkflowType == d.Type {
-			v.Runs = append(v.Runs, viewRun(rec))
-		}
-	}
-	return v
-}
-
-// viewDefinitionSteps is every step of d in order, in the state steps
-// (an instance's records, nil for the bare definition) left it.
-func viewDefinitionSteps(d wf.Definition, steps []wf.StepResult) []definitionStepView {
-	byName := map[string]wf.StepResult{}
-	for _, s := range steps {
-		byName[s.StepName] = s
-	}
-	var out []definitionStepView
-	for i, st := range d.Steps {
-		v := definitionStepView{Number: i + 1, Name: st.Name, Description: st.Description, Source: st.Source}
-		if steps != nil {
-			v.Status = "not run"
-			if s, ok := byName[st.Name]; ok {
-				v.Status, v.Duration, v.Error = string(s.Status), time.Duration(s.DurationNs).Round(time.Second).String(), s.Error
-			}
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
 // stepView is a recorded step as the template sees it.
 type stepView struct {
 	Name     string
@@ -473,7 +404,7 @@ type Server struct {
 // New builds the page. envs are always listed; environments that exist in
 // the cloud project, and ones being created from the page, join them.
 func New(op Operator, envs []deploy.Environment) (*Server, error) {
-	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/routes.html", "templates/load.html", "templates/workflows.html", "templates/run.html", "templates/explorer.html")
+	page, err := template.ParseFS(templateFS, "templates/index.html", "templates/envs.html", "templates/page.html", "templates/about.html", "templates/drills.html", "templates/perf.html", "templates/journal.html", "templates/scans.html", "templates/scan.html", "templates/routes.html", "templates/load.html", "templates/workflows.html", "templates/detail.html", "templates/explorer.html")
 	if err != nil {
 		return nil, err
 	}
@@ -499,9 +430,17 @@ func New(op Operator, envs []deploy.Environment) (*Server, error) {
 	s.mux.HandleFunc("GET /perf/load", s.loadTests)
 	s.mux.HandleFunc("GET /perf/scans", s.scans)
 	s.mux.HandleFunc("GET /perf/scans/{id}", s.scan)
-	s.mux.HandleFunc("GET /workflows", s.workflows)
-	s.mux.HandleFunc("GET /workflows/{id}", s.run)
-	s.mux.HandleFunc("GET /workflows/{id}/diagram.d2", s.runDiagram)
+	workflows := http.StripPrefix("/workflows", s.workflowViews().Handler())
+	s.mux.Handle("/workflows/", workflows)
+	s.mux.Handle("GET /workflows/instances", workflows)
+	s.mux.Handle("GET /workflows/definitions", workflows)
+	// An instance was /workflows/{id} before the engine's pages took over.
+	s.mux.HandleFunc("GET /workflows/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/workflows/instances/"+r.PathValue("id"), http.StatusMovedPermanently)
+	})
+	s.mux.HandleFunc("GET /workflows/{id}/diagram.d2", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/workflows/instances/"+r.PathValue("id")+"/diagram.d2", http.StatusMovedPermanently)
+	})
 	s.mux.HandleFunc("GET /internal/explorer", s.explorer)
 	s.mux.HandleFunc("GET /internal/explorer/", s.explorer)
 	s.mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
@@ -582,7 +521,7 @@ func (s *Server) pageData(ctx context.Context) map[string]any {
 		views = append(views, v)
 	}
 	var runs []runView
-	if recs, err := s.op.Runs(ctx, 20); err == nil {
+	if recs, err := s.op.ListRuns(ctx, wf.RunFilter{Limit: 20}); err == nil {
 		for _, rec := range recs {
 			runs = append(runs, viewRun(rec))
 		}
@@ -996,7 +935,7 @@ func (s *Server) drills(w http.ResponseWriter, r *http.Request) {
 	var views []drillView
 	for _, d := range list {
 		v := viewDrill(d)
-		if rec, steps, err := s.op.Run(r.Context(), d.RunID); err == nil && rec != nil {
+		if rec, steps, err := s.recorded(r.Context(), d.RunID); err == nil && rec != nil {
 			rv := viewRun(*rec)
 			v.Run, v.Steps = &rv, viewSteps(steps)
 		}
@@ -1109,7 +1048,7 @@ func (s *Server) perfs(w http.ResponseWriter, r *http.Request) {
 	var views []perfView
 	for _, p := range list {
 		v := viewPerf(p)
-		if rec, steps, err := s.op.Run(r.Context(), p.RunID); err == nil && rec != nil {
+		if rec, steps, err := s.recorded(r.Context(), p.RunID); err == nil && rec != nil {
 			rv := viewRun(*rec)
 			v.Run_, v.Steps = &rv, viewSteps(steps)
 		}
@@ -1135,7 +1074,7 @@ func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
 	var views []journalView
 	for _, run := range list {
 		v := journalView{Title: scenario.Title(run), Filename: scenario.Filename(run), Page: scenario.Page(run), IndexLine: scenario.IndexLine(run), RunID: run.RunID, Scan: scenario.IsScan(run)}
-		if rec, steps, err := s.op.Run(r.Context(), run.RunID); err == nil && rec != nil {
+		if rec, steps, err := s.recorded(r.Context(), run.RunID); err == nil && rec != nil {
 			rv := viewRun(*rec)
 			v.Run, v.Steps = &rv, viewSteps(steps)
 		}
@@ -1152,65 +1091,49 @@ func viewSteps(steps []wf.StepResult) []stepView {
 	return out
 }
 
-// workflows is the engine's view of this program: each workflow it runs
-// described from its definition, with the count of its instances in every
-// state and the instances themselves, newest first.
-func (s *Server) workflows(w http.ResponseWriter, r *http.Request) {
-	counts, err := s.op.Counts(r.Context())
-	runs, runsErr := s.op.Runs(r.Context(), 200)
-	var views []definitionView
-	for _, d := range flows.Definitions {
-		views = append(views, viewDefinition(d, counts[d.Type], runs))
+// workflowViews is gobank-workflow's pages over this program's runs and
+// definitions, in this program's layout.
+func (s *Server) workflowViews() *view.Views {
+	return &view.Views{
+		Store:       s.op,
+		Definitions: flows.Definitions,
+		Base:        "/workflows/",
+		Diagrams:    workflowDiagrams{must(fs.Sub(assetFS, "assets"))},
+		Detail:      s.detail,
+		Frame: func(w http.ResponseWriter, r *http.Request, p view.Page) {
+			s.render(w, "workflows", map[string]any{"html": p.HTML})
+		},
 	}
-	s.render(w, "workflows", map[string]any{"definitions": views, "error": errors.Join(err, runsErr)})
 }
 
-// instance finds the run id names, with its steps; it answers the request
-// itself (404, 500) and returns nil when there is nothing to show.
-func (s *Server) instance(w http.ResponseWriter, r *http.Request) (*wf.RunRecord, []wf.StepResult) {
-	rec, steps, err := s.op.Run(r.Context(), r.PathValue("id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return nil, nil
-	}
-	if rec == nil {
-		http.NotFound(w, r)
-		return nil, nil
-	}
-	return rec, steps
+// workflowDiagrams is the assets as the views ask for them: <type>.svg is
+// the <type>-workflow.svg task docs:d2 renders.
+type workflowDiagrams struct{ fs.FS }
+
+func (d workflowDiagrams) Open(name string) (fs.File, error) {
+	return d.FS.Open(strings.TrimSuffix(name, ".svg") + "-workflow.svg")
 }
 
-// runDiagram is the instance as d2 source, its steps coloured by state,
-// for rendering by hand.
-func (s *Server) runDiagram(w http.ResponseWriter, r *http.Request) {
-	rec, steps := s.instance(w, r)
-	if rec == nil {
-		return
+// recorded is one workflow run with its steps; nil when there is none.
+func (s *Server) recorded(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error) {
+	rec, err := s.op.GetRun(ctx, id)
+	if err != nil || rec == nil {
+		return nil, nil, err
 	}
-	def := flows.DefinitionOf(rec.WorkflowType)
-	if def == nil {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	io.WriteString(w, diagram.Instance(*def, *rec, steps))
+	steps, err := s.op.ListSteps(ctx, id)
+	return rec, steps, err
 }
 
-// run is one workflow instance: its recorded steps laid over its
-// definition, and when it is a drill or a perf run, that record too.
-func (s *Server) run(w http.ResponseWriter, r *http.Request) {
-	rec, steps := s.instance(w, r)
-	if rec == nil {
-		return
-	}
-	data := map[string]any{"run": viewRun(*rec), "steps": viewSteps(steps)}
-	if def := flows.DefinitionOf(rec.WorkflowType); def != nil {
-		data["definition"] = map[string]any{"Steps": viewDefinitionSteps(*def, steps)}
-	}
+// detail is what this program alone knows about an instance, under the
+// engine's page of it: its step rows in the explorer, and when it is a
+// drill, a scan, a load test or a perf run, that record too.
+func (s *Server) detail(r *http.Request, rec wf.RunRecord, _ []wf.StepResult, _ string) template.HTML {
+	data := map[string]any{}
 	if s.Explorer != nil {
 		data["explorerSteps"] = "/internal/explorer/workflow_steps?filter=run_id&value=" + rec.ID
 	}
-	if rec.WorkflowType == flows.WorkflowDrill {
+	switch rec.WorkflowType {
+	case flows.WorkflowDrill:
 		if list, err := s.op.Drills(r.Context(), 200); err == nil {
 			for _, d := range list {
 				if d.RunID == rec.ID {
@@ -1218,13 +1141,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-	if rec.WorkflowType == flows.WorkflowScan {
+	case flows.WorkflowScan:
 		if run, err := s.op.Scenario(r.Context(), rec.ID); err == nil && run != nil {
 			data["scan"] = viewScan(*run)
 		}
-	}
-	if rec.WorkflowType == flows.WorkflowLoad {
+	case flows.WorkflowLoad:
 		if list, err := s.op.Loads(r.Context(), 200); err == nil {
 			for _, l := range list {
 				if l.RunID == rec.ID {
@@ -1232,8 +1153,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-	if rec.WorkflowType == flows.WorkflowPerf {
+	case flows.WorkflowPerf:
 		if list, err := s.op.Perfs(r.Context(), 200); err == nil {
 			for _, p := range list {
 				if p.RunID == rec.ID {
@@ -1242,7 +1162,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	s.render(w, "run", data)
+	var b bytes.Buffer
+	if err := s.page.ExecuteTemplate(&b, "detail", data); err != nil {
+		return template.HTML(`<p class="has-text-danger">` + template.HTMLEscapeString(err.Error()) + `</p>`)
+	}
+	return template.HTML(b.String())
 }
 
 // explorer is go-dbexplorer over this program's database, in the page
@@ -1364,7 +1288,7 @@ func (s *Server) scansOf(ctx context.Context, scans []scenario.Run) scansView {
 	v := scansView{Budget: scenario.Dur(Budget)}
 	for _, r := range scans {
 		sv := viewScan(r)
-		if rec, steps, err := s.op.Run(ctx, r.RunID); err == nil && rec != nil {
+		if rec, steps, err := s.recorded(ctx, r.RunID); err == nil && rec != nil {
 			rv := viewRun(*rec)
 			sv.Run, sv.Steps = &rv, viewSteps(steps)
 		}
@@ -1436,7 +1360,7 @@ func (s *Server) scan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := viewScan(*run)
-	if rec, steps, err := s.op.Run(r.Context(), run.RunID); err == nil && rec != nil {
+	if rec, steps, err := s.recorded(r.Context(), run.RunID); err == nil && rec != nil {
 		rv := viewRun(*rec)
 		v.Run, v.Steps = &rv, viewSteps(steps)
 	}

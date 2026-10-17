@@ -173,7 +173,7 @@ func (h *drillHarness) run() error { return h.drill.Run(context.Background(), h.
 
 func (h *drillHarness) steps(t *testing.T) map[string]wf.RunStatus {
 	t.Helper()
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 {
 		t.Fatalf("runs = %d", len(runs))
 	}
@@ -202,7 +202,7 @@ func TestDrillUpgradesRollsBackAndGoesForwardRecordingEachHop(t *testing.T) {
 	if got := h.ops.fetched; strings.Join(got, " ") != "v2 v1 v2" || h.ops.ups != 3 || h.ops.serving != "v2" {
 		t.Errorf("fetched %v ups %d serving %s", got, h.ops.ups, h.ops.serving)
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if runs[0].WorkflowType != WorkflowDrill || runs[0].Key != "prod v1→v2 2026-09-27" || runs[0].Status != wf.StatusCompleted {
 		t.Errorf("run = %+v", runs[0])
 	}
@@ -253,7 +253,7 @@ func TestDrillNeedsANewerReleaseAndAStore(t *testing.T) {
 	if err := h.run(); err == nil || !strings.Contains(err.Error(), "release store") {
 		t.Errorf("err = %v", err)
 	}
-	if runs, _ := h.runs.ListRuns(context.Background(), 5); len(runs) != 0 {
+	if runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 5}); len(runs) != 0 {
 		t.Errorf("a refused drill leaves no run: %+v", runs)
 	}
 }

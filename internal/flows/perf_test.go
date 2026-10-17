@@ -263,7 +263,7 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 		t.Errorf("starts %d stops %d; want the run started for the days and stopped after", h.con.starts, h.con.stop)
 	}
 
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].WorkflowType != WorkflowPerf || runs[0].Key != "perf large 2026-09-27" || runs[0].Status != wf.StatusCompleted {
 		t.Fatalf("run = %+v", runs)
 	}
@@ -409,7 +409,7 @@ func TestPerfRunAllMeasuresEveryScaleAtOnce(t *testing.T) {
 	if len(h.ops.ups) != 2 || h.ops.downs != 2 || len(h.ops.servers) != 0 {
 		t.Errorf("ups %d downs %d servers left %d; want two of each and none left", len(h.ops.ups), h.ops.downs, len(h.ops.servers))
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 10)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 10})
 	if len(runs) != 2 {
 		t.Errorf("runs = %d, want one per scale", len(runs))
 	}
@@ -516,7 +516,7 @@ func TestPerfFailureRemovesTheBoxAndTheNextAttemptStartsOver(t *testing.T) {
 	if want := start.Add(2*6*time.Hour + time.Hour); len(h.ops.ups) != 1 || !h.ops.ups[0].Expires.Equal(want) {
 		t.Errorf("ups = %+v; want one create with expiry %s", h.ops.ups, want)
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].Status != wf.StatusFailed {
 		t.Fatalf("runs = %+v; want one failed run", runs)
 	}
@@ -532,7 +532,7 @@ func TestPerfFailureRemovesTheBoxAndTheNextAttemptStartsOver(t *testing.T) {
 	if len(h.ops.ups) != 2 || !h.ops.ups[1].Create || h.ops.downs != 2 {
 		t.Errorf("ups %d downs %d; want a second create and the remove at the end", len(h.ops.ups), h.ops.downs)
 	}
-	runs, _ = h.runs.ListRuns(context.Background(), 1)
+	runs, _ = h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if runs[0].Status != wf.StatusCompleted {
 		t.Errorf("run = %+v; want the same instance completed", runs[0])
 	}

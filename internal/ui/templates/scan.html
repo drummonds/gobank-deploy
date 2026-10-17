@@ -11,7 +11,7 @@
       </ul></nav>
       <h1 class="title is-4">Scan of {{.Environment}} on {{.Date}}</h1>
       <p class="mb-2">gobank {{.Version}} on {{.ServerType}} ({{.Memory}}) with {{.Customers}} customers; ladder {{.Ladder}}, {{.Samples}} calls a rung.
-        {{.Scanned}} routes scanned, {{.NotScanned}} not. <a href="/workflows/{{.RunID}}">Workflow run</a>.</p>
+        {{.Scanned}} routes scanned, {{.NotScanned}} not. <a href="/workflows/instances/{{.RunID}}">Workflow run</a>.</p>
       {{with .Run}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
       {{if .Steps}}{{template "steps" .Steps}}{{end}}
       <h2 class="title is-5">Every route at each rung, worst route first</h2>

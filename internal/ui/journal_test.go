@@ -56,7 +56,7 @@ func TestJournalUnderAboutShowsEachRunAsItsPage(t *testing.T) {
 		"| add | 09:01:00 | 2m | customers 1,000 |",
 		"| dashboard | GET | `/` | 1 | 20 | 80ms | 90ms | 12.5 |",
 		"## Notes",
-		`href="/workflows/run-1"`,
+		`href="/workflows/instances/run-1"`,
 		"- [2026-10-15 seven-years at large](2026-10-15-seven-years-large.md)",
 	} {
 		if !strings.Contains(body, want) {

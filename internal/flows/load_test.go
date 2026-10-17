@@ -92,7 +92,7 @@ func TestLoadCreatesFillsLoadsRecordsAndRemoves(t *testing.T) {
 	if h.ops.downs != 2 || len(h.ops.servers) != 0 {
 		t.Errorf("downs %d servers %v; want the loader and the target removed", h.ops.downs, h.ops.servers)
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].WorkflowType != WorkflowLoad || runs[0].Key != "load1 large 2026-09-27" || runs[0].Status != wf.StatusCompleted {
 		t.Fatalf("runs = %+v", runs)
 	}
@@ -130,7 +130,7 @@ func TestLoadFailureRemovesBothBoxes(t *testing.T) {
 	if len(h.ops.servers) != 0 {
 		t.Errorf("servers left %v; want none", h.ops.servers)
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].Status != wf.StatusFailed {
 		t.Errorf("runs = %+v", runs)
 	}

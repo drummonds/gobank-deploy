@@ -79,7 +79,7 @@ func TestScanLoadsEveryRouteItCanDrive(t *testing.T) {
 		t.Errorf("skipped = %v", skipped)
 	}
 
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].WorkflowType != WorkflowScan || runs[0].Key != "preprod 2026-09-27" || runs[0].Status != wf.StatusCompleted {
 		t.Fatalf("run = %+v", runs)
 	}

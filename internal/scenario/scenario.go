@@ -103,7 +103,7 @@ func ladder(l []int) string {
 func Page(r Run) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", Title(r))
-	fmt.Fprintf(&b, "gobank %s on %s (%s, %g GB), environment `%s`; the workflow run is `/workflows/%s` on the host that drove it.\n\n",
+	fmt.Fprintf(&b, "gobank %s on %s (%s, %g GB), environment `%s`; the workflow run is `/workflows/instances/%s` on the host that drove it.\n\n",
 		r.Version, r.Scale, r.ServerType, r.MemoryGB, r.Environment, r.RunID)
 
 	b.WriteString("| Configuration | |\n|---|---|\n")

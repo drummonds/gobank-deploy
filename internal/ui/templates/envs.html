@@ -100,7 +100,7 @@
       <table class="table is-fullwidth is-narrow is-size-7">
         <thead><tr><th>Workflow</th><th>Instance</th><th>State</th><th>Started</th><th>Error</th></tr></thead>
         <tbody>
-        {{range .runs}}<tr><td>{{.Type}}</td><td><a href="/workflows/{{.ID}}">{{.Key}}</a></td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
+        {{range .runs}}<tr><td>{{.Type}}</td><td><a href="/workflows/instances/{{.ID}}">{{.Key}}</a></td><td>{{.Status}}</td><td>{{.Started}}</td><td>{{.Error}}</td></tr>{{end}}
         </tbody>
       </table>
       {{end}}

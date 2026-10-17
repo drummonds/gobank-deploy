@@ -64,7 +64,7 @@ func TestPageHasTheRunItsTablesAndRoomForNotes(t *testing.T) {
 		"| customer search by name | POST | `/customers/search` | 1 | 20 | 120ms | 310ms | 8.3 |",
 		"| customer search by name | POST | `/customers/search` | 4 | 20 | 150ms | 420ms | 26.7 |",
 		"Not scanned: `GET /movements/{id}` (needs a path parameter)",
-		"/workflows/run-1",
+		"/workflows/instances/run-1",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("page lacks %q:\n%s", want, p)

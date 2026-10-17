@@ -16,7 +16,7 @@
       {{if not .perfs}}<p class="has-text-grey">No performance runs yet. Start one from the environments page: a fresh name and a scale.</p>{{end}}
       {{range .perfs}}
       <div class="box">
-        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.Scale}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}} · <a href="/workflows/{{.RunID}}">details</a></p>
+        <p class="has-text-weight-bold">{{.Date}} · {{.Environment}} · {{.Scale}} ({{.ServerType}}, {{.Memory}}) · gobank {{.Version}} · <a href="/workflows/instances/{{.RunID}}">details</a></p>
         {{with .Run_}}<p class="is-size-7">State <strong>{{.Status}}</strong>, started {{.Started}}{{if .Error}} <span class="has-text-danger">— {{.Error}}</span>{{end}}.</p>{{end}}
         {{if .Steps}}{{template "steps" .Steps}}{{end}}
         {{template "figures" .}}

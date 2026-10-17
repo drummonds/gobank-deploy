@@ -32,7 +32,7 @@
       <h2 class="title is-5">The tests</h2>
       <table class="table is-narrow is-fullwidth is-size-7">
         <thead><tr><th>Date</th><th>Environment</th><th>Scale</th><th>gobank</th><th>Customers</th><th>Capacity</th><th>Stopped</th></tr></thead>
-        <tbody>{{range .loads}}<tr><td><a href="/workflows/{{.RunID}}">{{.Date}}</a></td><td>{{.Environment}}</td><td>{{.Scale}} ({{.Box}})</td><td>{{.Version}}</td><td>{{.Customers}}</td>
+        <tbody>{{range .loads}}<tr><td><a href="/workflows/instances/{{.RunID}}">{{.Date}}</a></td><td>{{.Environment}}</td><td>{{.Scale}} ({{.Box}})</td><td>{{.Version}}</td><td>{{.Customers}}</td>
           <td>{{if or .Rungs .Breach}}{{.Capacity}} users{{else}}<span class="has-text-grey">not yet</span>{{end}}</td><td>{{.Breach}}</td></tr>{{end}}</tbody>
       </table>
       {{end}}

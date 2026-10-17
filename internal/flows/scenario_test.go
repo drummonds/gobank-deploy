@@ -236,7 +236,7 @@ func TestSevenYearsScenario(t *testing.T) {
 		t.Errorf("the ladder and samples are recorded on the run: %+v", rec.Config)
 	}
 
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].WorkflowType != WorkflowScenario || runs[0].Key != "seven-years large 2026-09-27" || runs[0].Status != wf.StatusCompleted {
 		t.Fatalf("run = %+v", runs)
 	}
@@ -271,7 +271,7 @@ func TestScenarioKeepLeavesTheServer(t *testing.T) {
 	if h.ops.downs != 0 || len(h.ops.servers) != 1 {
 		t.Errorf("downs %d servers %d; want the server kept", h.ops.downs, len(h.ops.servers))
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	steps, _ := h.runs.ListSteps(context.Background(), runs[0].ID)
 	for _, s := range steps {
 		if s.StepName == "remove" {

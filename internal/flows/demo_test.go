@@ -70,7 +70,7 @@ func newHarness() *harness {
 
 func (h *harness) steps(t *testing.T) map[string]wf.RunStatus {
 	t.Helper()
-	runs, _ := h.store.ListRuns(context.Background(), 1)
+	runs, _ := h.store.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 {
 		t.Fatalf("runs = %d", len(runs))
 	}
@@ -96,7 +96,7 @@ func TestDemoCreatesServesUntilExpiryThenRemoves(t *testing.T) {
 	if h.now.Before(h.env.Expires) {
 		t.Errorf("removed at %v, before expiry %v", h.now, h.env.Expires)
 	}
-	runs, _ := h.store.ListRuns(context.Background(), 1)
+	runs, _ := h.store.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if runs[0].WorkflowType != WorkflowDemo || runs[0].Key != "demo@2026-09-27T14:00:00Z" || runs[0].Status != wf.StatusCompleted {
 		t.Errorf("run = %+v", runs[0])
 	}
@@ -159,7 +159,7 @@ func TestDemoFailedCreateIsResumedByTheNextRun(t *testing.T) {
 	if len(h.ops.ups) != 2 || h.ops.downs != 1 {
 		t.Errorf("ups = %d downs = %d", len(h.ops.ups), h.ops.downs)
 	}
-	runs, _ := h.store.ListRuns(context.Background(), 5)
+	runs, _ := h.store.ListRuns(context.Background(), wf.RunFilter{Limit: 5})
 	if len(runs) != 1 || runs[0].Status != wf.StatusCompleted {
 		t.Errorf("one instance, completed: %+v", runs)
 	}

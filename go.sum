@@ -8,6 +8,8 @@ git.bytestone.uk/hum3/gobank-db v0.3.0 h1:4nZvoxHQBzkNmPSK2ORAt25ygirqjTgoTK6O/t
 git.bytestone.uk/hum3/gobank-db v0.3.0/go.mod h1:wCD+SdqmWlwoKc55VUnC/X3bNtkp3KedWD1cja0D9QA=
 git.bytestone.uk/hum3/gobank-workflow v0.5.0 h1:2TqXls3t+iBmU0aNrYWDhKRi3fHdu13vD/+hLYtt6eU=
 git.bytestone.uk/hum3/gobank-workflow v0.5.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
+git.bytestone.uk/hum3/gobank-workflow v0.7.0 h1:O/L0jGb7s87Y26glM93T92O8dnUkX9I02set0cw8E3w=
+git.bytestone.uk/hum3/gobank-workflow v0.7.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
 git.bytestone.uk/hum3/lofigui v0.18.0 h1:1kMfr9L6FfyzPgnGIJKPa7NYBk/Feumv263kbJX10TY=
 git.bytestone.uk/hum3/lofigui v0.18.0/go.mod h1:R8bGnSaKoR9fca7SC8MDFm5BhAtXOADaoIBxpi+Lt54=
 github.com/aws/aws-sdk-go-v2 v1.47.3 h1:HRoT/MkNi3bjO5xF4dCzLzvVmkvRGHj3/cLINDnJejk=

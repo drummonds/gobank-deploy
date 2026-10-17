@@ -248,15 +248,17 @@ link to it.
 
 `tp secrets gobank-deploy load <env> -scale large` load tests a fresh
 environment: `create` (the target at the scale, with an expiry), `add`
-(the demo stopped, its books filled to `-customers 10000`), `loader` (a
+(the demo stopped, its books filled to `-customers`, by default the top
+rung's users — the journey needs a customer to log in as, not full books), `loader` (a
 box `<env>-loader` in the target's location on the private network, ssh from `-admit` only, this
 program's own executable copied onto it — so it is arm64 from hydrogen and
 amd64 from the laptop), `load` (from the loader against the target's
 private address: the customer journey — login, the accounts screen, one
 account's screen — walked by each rung of `-ladder 1,2,5,10,20,50,100,200,500`
 users `-reps 10` times each, every walk the next customer, until a
-screen's p95 is over `-budget 2s` or a journey fails), `remove` (both
-boxes). The capacity is the last rung that held. The page has a Load test
+screen's p95 is over `-budget 2s` or a journey fails; a first rung with
+no journey completed fails the test rather than recording capacity 0),
+`remove` (both boxes, also when a stage fails). The capacity is the last rung that held. The page has a Load test
 form beside Performance run; **Load tests** under Performance
 (`/perf/load`) charts the capacity against gobank's version, a line per
 scale, and a test's run page has every rung.

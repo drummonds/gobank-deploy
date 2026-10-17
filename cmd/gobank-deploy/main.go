@@ -110,7 +110,7 @@ func usage() {
                                                        measured document written to PATH (default
                                                        <-src>/api/measured.json) for gobank's API pages,
                                                        for you to commit and release
-  gobank-deploy load <env> [-scale small] [-customers 10000] [-ladder 1,2,5,...] [-reps 10] [-budget 2s]
+  gobank-deploy load <env> [-scale small] [-customers 500] [-ladder 1,2,5,...] [-reps 10] [-budget 2s]
                                                        load test on a fresh environment <env>: create it,
                                                        fill its books, make <env>-loader beside it on the
                                                        private network, walk the customer journey up the
@@ -359,7 +359,7 @@ func main() {
 	case "load":
 		fs := flag.NewFlagSet("load", flag.ExitOnError)
 		scale := fs.String("scale", "small", "scale of the target (small|medium|large|xl or any hcloud server type)")
-		customers := fs.Int("customers", 10_000, "customers on the target's books, walked in sequence")
+		customers := fs.Int("customers", 0, "customers on the target's books, walked in sequence (default the top rung's users)")
 		ladder := fs.String("ladder", "", "concurrent users at each rung (default 1,2,5,10,20,50,100,200,500)")
 		reps := fs.Int("reps", 10, "journeys each user walks at a rung")
 		budget := fs.Duration("budget", 2*time.Second, "the p95 a screen may reach and the rung still hold")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
@@ -29,9 +30,9 @@ var LoadDefinition = wf.Definition{
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create the target at the scale with an expiry of twice the ceiling and an hour; record where the test is: server type, RAM, gobank version. Undone by remove when a later stage fails", Source: loadSrc},
-		{Name: "add", Description: "the demo stopped and set flat out; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached — the journeys' customers", Source: loadSrc},
+		{Name: "add", Description: "the demo stopped and set flat out; batches of customers until the books hold the target (the top rung's users, 500) or the ceiling (6h) is reached — the journeys' customers", Source: loadSrc},
 		{Name: "loader", Description: "a box <env>-loader in the target's location (another only when that has no capacity, and the log says so), on the private network: ssh from home only, this program copied onto it, the same expiry", Source: loadSrc},
-		{Name: "load", Description: "from the loader, against the target's private address: the ladder of users (1, 2, 5, 10, 20, 50, 100, 200, 500), each walking the journey 10 times, stopped at the first rung whose p95 on a screen is over 2s or where a journey failed", Source: loadSrc},
+		{Name: "load", Description: "from the loader, against the target's private address: the ladder of users (1, 2, 5, 10, 20, 50, 100, 200, 500), each walking the journey 10 times, stopped at the first rung whose p95 on a screen is over 2s or where a journey failed; a first rung with no journey completed fails the test", Source: loadSrc},
 		{Name: "remove", Description: "down the loader and the target: servers, firewalls and hostname", Source: loadSrc},
 	},
 }
@@ -58,23 +59,36 @@ type Load struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	Poll  time.Duration
 
-	Customers int           // the books' target; default 10,000
+	Customers int           // the books' target; default the top rung's users
 	Ladder    []int         // default load.Ladder
 	Reps      int           // journeys per user per rung; default 10
 	Budget    time.Duration // p95 per screen; default 2s
 	Ceiling   time.Duration // the most the add or the load runs for; default 6h
 }
 
+func (l *Load) ladder() []int {
+	if len(l.Ladder) == 0 {
+		return load.Ladder
+	}
+	return l.Ladder
+}
+
+// customers is the books' target: enough for every user of the top rung
+// to log in as a customer of their own, unless told otherwise.
+func (l *Load) customers() int {
+	if l.Customers > 0 {
+		return l.Customers
+	}
+	return slices.Max(l.ladder())
+}
+
 // filler is the perf workflow's add, for the books.
 func (l *Load) filler() *Perf {
-	return &Perf{Ops: l.Ops, Console: l.Console, Now: l.Now, Sleep: l.Sleep, Poll: l.Poll, Customers: l.Customers, Ceiling: l.Ceiling}
+	return &Perf{Ops: l.Ops, Console: l.Console, Now: l.Now, Sleep: l.Sleep, Poll: l.Poll, Customers: l.customers(), Ceiling: l.Ceiling}
 }
 
 func (l *Load) options(customers int) deploy.JourneyOptions {
-	o := deploy.JourneyOptions{Customers: customers, Ladder: l.Ladder, Reps: l.Reps, Budget: l.Budget}
-	if len(o.Ladder) == 0 {
-		o.Ladder = load.Ladder
-	}
+	o := deploy.JourneyOptions{Customers: customers, Ladder: l.ladder(), Reps: l.Reps, Budget: l.Budget}
 	if o.Reps <= 0 {
 		o.Reps = 10
 	}
@@ -220,6 +234,9 @@ func (r *loadRun) load(ctx context.Context) error {
 	res, err := r.l.Ops.Journey(ctx, r.loader, st.Server, r.l.options(rec.Customers), r.out)
 	if err != nil {
 		return err
+	}
+	if len(res.Rungs) == 0 || res.Rungs[0].Journeys == 0 {
+		return fmt.Errorf("nothing measured: %s", res.Breach)
 	}
 	rec.Result = res
 	why := res.Breach

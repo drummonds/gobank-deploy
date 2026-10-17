@@ -143,7 +143,7 @@ concurrent users until a screen is too slow.
 |------|---------|
 | journey | the customer's screens in order, defined as data (`load.Customer`): login, accounts (the balances), account (one account's details and transactions) |
 | screen | one request of the journey, timed body and all |
-| target | the environment under load: a fresh one at a scale, its books filled to 10,000 customers |
+| target | the environment under load: a fresh one at a scale, its books filled with customers enough for the top rung (500) |
 | loader | the box the load comes from, `<target>-loader`: this program, no demo |
 | rung | so many users walking at once, each the journey `-reps` times (10), every walk the next customer in sequence, cust-001 onwards and round, so nothing is answered from a cache |
 | ladder | the rungs in order: 1, 2, 5, 10, 20, 50, 100, 200, 500 users |

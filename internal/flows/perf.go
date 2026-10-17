@@ -217,6 +217,7 @@ type prefixWriter struct {
 func (w *prefixWriter) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	n := len(b)
 	for len(b) > 0 {
 		if !w.midLine {
 			if _, err := io.WriteString(w.out, w.prefix); err != nil {
@@ -226,8 +227,10 @@ func (w *prefixWriter) Write(b []byte) (int, error) {
 		}
 		i := bytes.IndexByte(b, '\n')
 		if i < 0 {
-			_, err := w.out.Write(b)
-			return len(b), err
+			if _, err := w.out.Write(b); err != nil {
+				return 0, err
+			}
+			return n, nil
 		}
 		if _, err := w.out.Write(b[:i+1]); err != nil {
 			return 0, err
@@ -235,7 +238,7 @@ func (w *prefixWriter) Write(b []byte) (int, error) {
 		w.midLine = false
 		b = b[i+1:]
 	}
-	return 0, nil
+	return n, nil
 }
 
 // perfRun is one run: the key's instance and its record.

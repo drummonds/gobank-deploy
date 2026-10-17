@@ -168,9 +168,33 @@ func (c *perfConsole) Stop(_ context.Context, url, _ string) error {
 	return nil
 }
 
+// perfPages is the staff pages as the perf run requests them: each
+// request with its token, and whether the demo was running the days at
+// the time.
+type perfPages struct {
+	mu      sync.Mutex
+	con     *perfConsole
+	fetched []string // url token running
+	fail    error    // every fetch fails with this when set
+}
+
+func (p *perfPages) Fetch(_ context.Context, url, token string) (string, time.Duration, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.con.mu.Lock()
+	running := p.con.demo("http://perf/").running
+	p.con.mu.Unlock()
+	p.fetched = append(p.fetched, fmt.Sprintf("%s %s %t", url, token, running))
+	if p.fail != nil {
+		return "", 0, p.fail
+	}
+	return "<html></html>", 40 * time.Millisecond, nil
+}
+
 type perfHarness struct {
 	ops   *perfOps
 	con   *perfConsole
+	pages *perfPages
 	runs  *wf.MemStore
 	perfs *perf.Store
 	clock sync.Mutex
@@ -193,7 +217,8 @@ func newPerfHarness(t *testing.T) *perfHarness {
 	h := &perfHarness{ops: &perfOps{version: "v0.12.0", servers: map[string]*deploy.Server{}}, runs: wf.NewMemStore(), perfs: store, now: start}
 	clock := func() time.Time { h.clock.Lock(); defer h.clock.Unlock(); return h.now }
 	h.con = &perfConsole{ops: h.ops, now: clock, batchTime: time.Minute, dayTime: 90 * time.Second}
-	h.flow = &Perf{Ops: h.ops, Console: h.con, Store: h.runs, Perfs: store,
+	h.pages = &perfPages{con: h.con}
+	h.flow = &Perf{Ops: h.ops, Console: h.con, Pages: h.pages, Store: h.runs, Perfs: store,
 		Now: clock,
 		Sleep: func(ctx context.Context, d time.Duration) error {
 			h.clock.Lock()
@@ -279,6 +304,60 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 		if !strings.Contains(h.out.String(), want) {
 			t.Errorf("log should say %q:\n%s", want, h.out.String())
 		}
+	}
+}
+
+// While the days run, the staff pages are requested in rotation as the
+// operator, so the demo's count and p95 of each at scale land in the
+// record's routes alongside the console's.
+func TestPerfRequestsTheStaffPagesInRotationDuringTheDays(t *testing.T) {
+	h := newPerfHarness(t)
+	h.ops.token = "tok"
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	staff := []string{"/", "/accounting/pnl", "/accounting/balance-sheet", "/reports/bbsi", "/internal/explorer",
+		"/customers", "/payments", "/treasury/cash", "/treasury/capital", "/treasury/gilts"}
+	counts := map[string]int{}
+	for _, f := range h.pages.fetched {
+		counts[f]++
+	}
+	least, most := -1, 0
+	for _, path := range staff {
+		want := "http://perf" + path + " tok true"
+		n := counts[want]
+		if n == 0 {
+			t.Errorf("%s never requested as the operator while the days ran", path)
+		}
+		if least < 0 || n < least {
+			least = n
+		}
+		most = max(most, n)
+		delete(counts, want)
+	}
+	if len(counts) != 0 {
+		t.Errorf("requests other than the staff pages as the operator during the days: %v", counts)
+	}
+	if most-least > 1 {
+		t.Errorf("pages requested between %d and %d times each; want a rotation, each within one of the others", least, most)
+	}
+}
+
+// A staff page that fails is logged and the days carry on: the page's
+// figures are the demo's to record, not a reason to lose the run.
+func TestPerfCarriesOnWhenAStaffPageFails(t *testing.T) {
+	h := newPerfHarness(t)
+	h.flow.Customers, h.flow.Days = 100, 10
+	h.pages.fail = errors.New("504 Gateway Timeout")
+	if err := h.run("small"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := h.perfs.List(context.Background(), 1)
+	if len(list) != 1 || list[0].Days < 10 {
+		t.Errorf("record = %+v; want the days run", list)
+	}
+	if !strings.Contains(h.out.String(), "504 Gateway Timeout") {
+		t.Errorf("log should name the failed page:\n%s", h.out.String())
 	}
 }
 

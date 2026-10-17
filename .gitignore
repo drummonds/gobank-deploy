@@ -3,3 +3,4 @@ docs/*.html
 docs/journal/*.html
 task-plus.local.yaml
 .tp-release-comment
+.tp-release.yml

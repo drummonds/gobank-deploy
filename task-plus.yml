@@ -13,3 +13,4 @@ release_remote: origin
 maturity:
   code: 1
 merge_wait: 10m
+fragments: true

@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.10.0
+	git.bytestone.uk/hum3/go-span v0.1.0
 	git.bytestone.uk/hum3/gobank-db v0.3.0
 	git.bytestone.uk/hum3/gobank-workflow v0.5.0
 	git.bytestone.uk/hum3/lofigui v0.18.0

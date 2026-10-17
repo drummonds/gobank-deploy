@@ -165,7 +165,7 @@ func TestLoadNothingMeasuredFails(t *testing.T) {
 	if len(h.ops.servers) != 0 {
 		t.Errorf("servers left %v; want none", h.ops.servers)
 	}
-	runs, _ := h.runs.ListRuns(context.Background(), 1)
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
 	if len(runs) != 1 || runs[0].Status != wf.StatusFailed {
 		t.Errorf("runs = %+v", runs)
 	}

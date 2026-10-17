@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,7 +36,7 @@ var PerfDefinition = wf.Definition{
 		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
 		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
 		{Name: "days", Description: "Run until the bank's day is the years on (7), or the days asked for, or the ceiling (6h) is reached, then Stop; a demo found stopped is pressed Run again at most twice in a row, then the stage fails; read account days per 12h and the last day it is made of", Source: perfSrc},
-		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95 (gobank v0.51.0 onwards; none before), and every table's rows and size on disk with the database's whole size (gobank with about.json's tables; none before), read off about.json", Source: perfSrc},
+		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run — the console's and the staff pages (dashboard, books, BBSI, explorer, customers, payments, treasury) the days stage requested in rotation, one a poll — its count and p95 (gobank v0.51.0 onwards; none before), and every table's rows and size on disk with the database's whole size (gobank with about.json's tables; none before), read off about.json", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
 	},
 }
@@ -54,10 +55,16 @@ type PerfConsole interface {
 	Stop(ctx context.Context, url, token string) error
 }
 
+// StaffPages fetches a staff page as the operator, as a browser would.
+type StaffPages interface {
+	Fetch(ctx context.Context, url, token string) (body string, took time.Duration, err error)
+}
+
 // Perf runs the performance workflow.
 type Perf struct {
 	Ops     Ops         // Status, Up (create) and Down
 	Console PerfConsole // the demo
+	Pages   StaffPages  // the staff pages the days stage requests; none when nil
 	Store   wf.Store    // the workflow runs
 	Perfs   *perf.Store // the runs and their figures
 
@@ -451,12 +458,14 @@ func (r *perfRun) days(ctx context.Context) error {
 	// A demo seen stopped short of the target is pressed again, at most
 	// runRetries times in a row; still stopped, the stage fails rather
 	// than polling to the ceiling with the box billing.
-	retries := 0
+	retries, turn := 0, 0
 	start := r.p.now()
 	for rd.Position.Day < target && r.p.now().Sub(start) < ceiling {
 		if err := r.p.sleep(ctx, min(or(r.p.Poll, 10*time.Second), ceiling-r.p.now().Sub(start))); err != nil {
 			return err
 		}
+		r.visit(ctx, st, turn)
+		turn++
 		if _, rd, err = r.read(ctx); err != nil {
 			return err
 		}
@@ -507,6 +516,25 @@ func (r *perfRun) routes(ctx context.Context) error {
 	rec.Tables, rec.DatabaseBytes = rd.Tables, rd.DatabaseBytes
 	fmt.Fprintf(r.out, "%d routes measured; %d tables sized\n", len(rec.Routes), len(rec.Tables))
 	return r.p.Perfs.Update(ctx, *rec)
+}
+
+// staffPages are the staff pages the days stage requests in rotation, one
+// a poll: the dashboard, the books, the regulatory return, the explorer,
+// the customers, the payments and the treasury (gobank's bff/staff).
+var staffPages = []string{"/", "/accounting/pnl", "/accounting/balance-sheet", "/reports/bbsi", "/internal/explorer",
+	"/customers", "/payments", "/treasury/cash", "/treasury/capital", "/treasury/gilts"}
+
+// visit requests the staff page whose turn it is, as the operator, so the
+// demo measures it at the run's scale. A page that fails is logged, not
+// fatal: its figures are the demo's to record.
+func (r *perfRun) visit(ctx context.Context, st deploy.Status, turn int) {
+	if r.p.Pages == nil {
+		return
+	}
+	path := staffPages[turn%len(staffPages)]
+	if _, _, err := r.p.Pages.Fetch(ctx, strings.TrimSuffix(st.URL, "/")+path, st.APIToken); err != nil {
+		fmt.Fprintf(r.out, "staff page %s: %v\n", path, err)
+	}
 }
 
 // runRetries is how many times in a row the days stage presses Run again

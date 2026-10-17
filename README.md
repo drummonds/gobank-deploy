@@ -149,8 +149,11 @@ server that exists is kept), `add` (the demo set flat out with
 room for a million customers, then batches of 1,000 customers until the
 books hold 10,000, the rate taken from the demo batch by batch so this
 program's polling is not in it), `days` (Run until the bank's day is seven
-years on or six hours have passed, read account days per 12h and the last
-day it is made of, Stop), `remove` (down). The two rates
+years on or six hours have passed, requesting the staff pages — dashboard,
+P&L, balance sheet, BBSI, explorer, customers, payments, treasury — in
+rotation, one a poll, so their counts and p95s at scale land in the
+record; read account days per 12h and the last day it is made of, Stop),
+`remove` (down). The two rates
 are gobank v0.12's `/about.json` `sim` block. Each run is kept in the `-db`
 database with where it ran — scale, server type, RAM, gobank version — and
 the **Performance** page is the history, each run with its row for

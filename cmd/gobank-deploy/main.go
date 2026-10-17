@@ -259,7 +259,7 @@ func main() {
 		defer database.Close()
 		demo := &flows.Demo{Ops: factory, Store: runs}
 		drill := &flows.Drill{Ops: factory, Console: &remote.Console{}, Store: runs, Drills: st.drills}
-		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Store: runs, Perfs: st.perfs}
+		perfFlow := &flows.Perf{Ops: factory, Console: &remote.Console{}, Pages: &remote.Browser{}, Store: runs, Perfs: st.perfs}
 		loadFlow := &flows.Load{Ops: factory, Console: &remote.Console{}, Store: runs, Loads: st.loads}
 		scenarioFlow := &flows.Scenario{Ops: factory, Console: &remote.Console{}, Prober: &remote.Browser{}, Store: runs, Scenarios: st.scenarios}
 		page, err := ui.New(ui.Ops{DeployerFactory: factory, Flows: demo, Drill_: drill, Perf_: perfFlow, Load_: loadFlow, Scenario_: scenarioFlow}, envs)
@@ -337,7 +337,7 @@ func main() {
 				list = append(list, s)
 			}
 		}
-		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Store: runs, Perfs: perfStore,
+		perfFlow := &flows.Perf{Ops: ui.DeployerFactory(newDeployer), Console: &remote.Console{}, Pages: &remote.Browser{}, Store: runs, Perfs: perfStore,
 			Customers: *customers, Days: *days, Ceiling: *ceiling}
 		var records []perf.Run
 		records, err = perfFlow.RunAll(ctx, env, list, os.Stdout)

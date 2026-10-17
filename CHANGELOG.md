@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-17
+
+ - Dependencies: go-postgres v0.10.0, lofigui v0.18.0, aws-sdk-go-v2 and golang.org/x refreshed
+
+### Changed
+
+- Dependencies: go-postgres v0.10.0, lofigui v0.18.0, aws-sdk-go-v2 and golang.org/x refreshed (#50)
+
 ## [0.28.0] - 2026-10-17
 
  - Short perf run from the dashboard: the Performance run form takes customers, days and a ceiling, blank for the full run

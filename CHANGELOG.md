@@ -6,8 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
- - Short perf run from the dashboard: the Performance run form takes customers, days and a ceiling, blank for the full run (#46)
-
 ## [0.26.0] - 2026-10-16
 
  - New servers get a public IPv4 only, no IPv6: each box now costs one Hetzner primary IP, not two (#44)

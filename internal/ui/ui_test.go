@@ -1095,8 +1095,8 @@ func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
 	}
 	op.mu.Lock()
 	op.perfRuns = []perf.Run{{RunID: "run-9", Environment: "perf1", Scale: "large", ServerType: "cx53", MemoryGB: 32, Version: "v0.12.0",
-		CreatedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local), AddSpan: 10 * time.Minute, Customers: 48000, CustomersPerSec: 80.5,
-		DaysSpan: 10 * time.Minute, Days: 7, AccountDaysPer12h: 9_000_000, LastDay: 85 * time.Second, LastDayAccounts: 96000,
+		CreatedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local), AddSpan: time.Hour + 46*time.Minute + 51360895289*time.Nanosecond, Customers: 48000, CustomersPerSec: 80.5,
+		DaysSpan: 2*time.Minute + 3460*time.Millisecond, Days: 340, AccountDaysPer12h: 9_000_000, LastDay: 16234 * time.Millisecond, LastDayAccounts: 96000,
 		Tables: []perf.Table{{Name: "movements", Rows: 44_000_000, Bytes: 6 << 30}, {Name: "customers", Rows: 10_000, Bytes: 3 << 20}}, DatabaseBytes: 8 << 30}}
 	op.runs = []wf.RunRecord{{ID: "run-9", WorkflowType: "perf", Key: "perf1 large 2026-10-06", Status: wf.StatusCompleted, StartedAt: time.Now()}}
 	op.mu.Unlock()
@@ -1104,14 +1104,28 @@ func TestPerfPageIsTheHistoryWithARowPerRun(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	for _, want := range []string{"Tue 6 Oct 2026 09:00", "perf1", "large", "cx53", "32 GB", "v0.12.0", "48,000", "80.5", "9,000,000", "1m25s", "96,000", `href="/workflows/run-9"`,
-		"| 2026-10-06 | v0.12.0 | large | cx53: 32 GB | 48,000 | 80.5 | 7 | 9,000,000 | 1m25s over 96,000 accounts |"} {
+	for _, want := range []string{"Tue 6 Oct 2026 09:00", "perf1", "large", "cx53", "32 GB", "v0.12.0", "48,000", "80.5", "9,000,000", "96,000", `href="/workflows/run-9"`,
+		// The spans only as precise as they need to be: Adding took, Days took, Days run, Last day.
+		"<td>1h46m51s</td>", "<td>2m3.5s</td>", "<td>340d</td>", "<td>16.23s over 96,000 accounts</td>",
+		"| 2026-10-06 | v0.12.0 | large | cx53: 32 GB | 48,000 | 80.5 | 340d | 9,000,000 | 16.23s over 96,000 accounts |"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("perf page missing %q:\n%s", want, body)
 		}
 	}
 	if strings.Contains(body, "<code>movements</code>") {
 		t.Error("the history keeps to the figures: the tables are on the run's page")
+	}
+}
+
+// Days run counts simulated days, so from a year on it is years and days,
+// never hours; a long last day drops its seconds.
+func TestBenchmarkRowShowsDaysRunInYearsAndDays(t *testing.T) {
+	r := perf.Run{Scale: "large", ServerType: "cx53", MemoryGB: 32, Version: "v0.12.0", CreatedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local),
+		AddSpan: time.Minute, Customers: 48000, CustomersPerSec: 80.5,
+		DaysSpan: time.Hour, Days: 388, AccountDaysPer12h: 9_000_000, LastDay: 28*time.Hour + 32*time.Minute + 10*time.Second, LastDayAccounts: 96000}
+	want := "| 2026-10-06 | v0.12.0 | large | cx53: 32 GB | 48,000 | 80.5 | 1y23d | 9,000,000 | 1d4h32m over 96,000 accounts |"
+	if got := BenchmarkRow(r); got != want {
+		t.Errorf("row\n got %s\nwant %s", got, want)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"git.bytestone.uk/hum3/go-span"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/diagram"
 	"git.bytestone.uk/hum3/lofigui"
@@ -1012,6 +1013,9 @@ type perfView struct {
 	Run_      *runView // the workflow run; nil when the store has lost it
 	Steps     []stepView
 	Memory    string // "32 GB"
+	AddSpan   string // only as precise as it needs to be; "" before the add span ran
+	DaysSpan  string // as AddSpan; "" before the days span ran
+	Days      string // simulated days run: "340d", "1y23d"
 	Customers string // grouped
 	Rate      string // customers/s to one place; "" before the add span ran
 	Accounts  string // account days per 12h, grouped; "" before the days span ran
@@ -1066,14 +1070,17 @@ func viewPerf(r perf.Run) perfView {
 		v.Database = byteSize(r.DatabaseBytes)
 	}
 	if r.AddSpan > 0 {
+		v.AddSpan = span.Format(r.AddSpan)
 		v.Rate = fmt.Sprintf("%.1f", r.CustomersPerSec)
 	}
+	v.Days = span.Days(r.Days)
 	if r.DaysSpan > 0 {
+		v.DaysSpan = span.Format(r.DaysSpan)
 		v.Accounts = groupInt(r.AccountDaysPer12h)
-		v.LastDay = fmt.Sprintf("%s over %s accounts", r.LastDay.Round(time.Second), groupInt(int64(r.LastDayAccounts)))
+		v.LastDay = fmt.Sprintf("%s over %s accounts", span.Format(r.LastDay), groupInt(int64(r.LastDayAccounts)))
 	}
-	v.Row = fmt.Sprintf("| %s | %s | %s | %s: %s | %s | %s | %d | %s | %s |",
-		r.CreatedAt.Format("2006-01-02"), r.Version, r.Scale, r.ServerType, v.Memory, v.Customers, v.Rate, r.Days, v.Accounts, v.LastDay)
+	v.Row = fmt.Sprintf("| %s | %s | %s | %s: %s | %s | %s | %s | %s | %s |",
+		r.CreatedAt.Format("2006-01-02"), r.Version, r.Scale, r.ServerType, v.Memory, v.Customers, v.Rate, v.Days, v.Accounts, v.LastDay)
 	return v
 }
 

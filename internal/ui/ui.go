@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,8 +70,8 @@ type Operator interface {
 	// Run is one workflow run with its steps; nil when there is none.
 	Run(ctx context.Context, id string) (*wf.RunRecord, []wf.StepResult, error)
 	// Perf runs gobank's performance run: a new environment at scale,
-	// measured and removed.
-	Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error
+	// measured to the targets and removed.
+	Perf(ctx context.Context, env deploy.Environment, scale string, t PerfTargets, out io.Writer) error
 	// Perfs lists recent performance runs, most recent first.
 	Perfs(ctx context.Context, limit int) ([]perf.Run, error)
 	// Load runs gobank's load test: a new environment at scale and a
@@ -108,8 +109,18 @@ func (o Ops) Scenario(ctx context.Context, runID string) (*scenario.Run, error) 
 	return o.Scenario_.Scenarios.Get(ctx, runID)
 }
 
-func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, out io.Writer) error {
-	return o.Perf_.Run(ctx, env, scale, out)
+// PerfTargets are what a performance run measures to; a zero field is the
+// full run's: 10,000 customers, seven years, a six-hour ceiling.
+type PerfTargets struct {
+	Customers int           // the add stage runs the books up to this many
+	Days      int           // the days stage runs this many days instead of the years
+	Ceiling   time.Duration // the most either stage runs; the boxes' expiry follows it
+}
+
+func (o Ops) Perf(ctx context.Context, env deploy.Environment, scale string, t PerfTargets, out io.Writer) error {
+	p := *o.Perf_ // one run's targets, without touching the runs alongside
+	p.Customers, p.Days, p.Ceiling = t.Customers, t.Days, t.Ceiling
+	return p.Run(ctx, env, scale, out)
 }
 
 func (o Ops) Perfs(ctx context.Context, limit int) ([]perf.Run, error) {
@@ -704,13 +715,48 @@ func (s *Server) perf(w http.ResponseWriter, r *http.Request) {
 	if scale == "" {
 		scale = "small"
 	}
+	targets, err := perfTargets(r)
+	if err != nil {
+		s.fail(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 	env := deploy.Environment{Name: name}
-	run := func(ctx context.Context, out io.Writer) error { return s.op.Perf(ctx, env, scale, out) }
+	run := func(ctx context.Context, out io.Writer) error { return s.op.Perf(ctx, env, scale, targets, out) }
 	if err := s.start(env, "perf", run); err != nil {
 		s.fail(w, r, http.StatusConflict, fmt.Sprintf("%s: %v", env.Name, err))
 		return
 	}
 	s.done(w, r)
+}
+
+// perfTargets reads the perf form's customers, days and ceiling; a blank
+// field is the full run's.
+func perfTargets(r *http.Request) (PerfTargets, error) {
+	var t PerfTargets
+	count := func(field string) (int, error) {
+		v := r.FormValue(field)
+		if v == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%s %q: want a whole number, or blank for the full run", field, v)
+		}
+		return n, nil
+	}
+	var err error
+	if t.Customers, err = count("customers"); err != nil {
+		return t, err
+	}
+	if t.Days, err = count("days"); err != nil {
+		return t, err
+	}
+	if v := r.FormValue("ceiling"); v != "" {
+		if t.Ceiling, err = time.ParseDuration(v); err != nil || t.Ceiling <= 0 {
+			return t, fmt.Errorf("ceiling %q: want a duration such as 30m, or blank for six hours", v)
+		}
+	}
+	return t, nil
 }
 
 // removeAfter is the form's "remove" choice as a duration; zero is keep.

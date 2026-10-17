@@ -60,7 +60,7 @@ func newLoadHarness(t *testing.T) *loadHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ops := &loadOps{perfOps: ph.ops, result: load.Result{Budget: 2 * time.Second, Capacity: 50, Breach: "100 users: login p95 2.4s over 2s", Rungs: []load.Rung{{Users: 50}, {Users: 100}}}}
+	ops := &loadOps{perfOps: ph.ops, result: load.Result{Budget: 2 * time.Second, Capacity: 50, Breach: "100 users: login p95 2.4s over 2s", Rungs: []load.Rung{{Users: 50, Journeys: 500}, {Users: 100, Journeys: 1000}}}}
 	h := &loadHarness{perfHarness: ph, ops: ops, loads: loads}
 	h.flow = &Load{Ops: ops, Console: ph.con, Store: ph.runs, Loads: loads, Now: ph.flow.Now, Sleep: ph.flow.Sleep, Poll: 10 * time.Second, Customers: 2000}
 	return h
@@ -126,6 +126,41 @@ func TestLoadFailureRemovesBothBoxes(t *testing.T) {
 	err := h.flow.Run(context.Background(), deploy.Environment{Name: "load1"}, "small", &h.out)
 	if err == nil || !strings.Contains(err.Error(), "connection lost") {
 		t.Fatalf("err = %v", err)
+	}
+	if len(h.ops.servers) != 0 {
+		t.Errorf("servers left %v; want none", h.ops.servers)
+	}
+	runs, _ := h.runs.ListRuns(context.Background(), wf.RunFilter{Limit: 1})
+	if len(runs) != 1 || runs[0].Status != wf.StatusFailed {
+		t.Errorf("runs = %+v", runs)
+	}
+}
+
+// Unless told otherwise, the books are filled with customers enough for
+// the top rung, not the perf workflow's 10,000: the journey needs a
+// customer to log in as, not full books.
+func TestLoadFillsCustomersForTheTopRung(t *testing.T) {
+	h := newLoadHarness(t)
+	h.flow.Customers = 0
+	h.flow.Ladder = []int{1, 5, 40}
+	if err := h.flow.Run(context.Background(), deploy.Environment{Name: "load1"}, "small", &h.out); err != nil {
+		t.Fatal(err)
+	}
+	if o := h.ops.opts[0]; o.Customers != 40 {
+		t.Errorf("journey customers = %d; want the top rung's 40 on the books", o.Customers)
+	}
+}
+
+// A climb whose first rung completed no journey measured nothing: the
+// load test fails with why, and both boxes are removed, rather than
+// recording a capacity of 0.
+func TestLoadNothingMeasuredFails(t *testing.T) {
+	h := newLoadHarness(t)
+	h.ops.result = load.Result{Budget: 2 * time.Second, Breach: "1 users: 10 journeys failed (first: login: 401 Unauthorized)",
+		Rungs: []load.Rung{{Users: 1, Failed: 10, FirstError: "login: 401 Unauthorized"}}}
+	err := h.flow.Run(context.Background(), deploy.Environment{Name: "load1"}, "small", &h.out)
+	if err == nil || !strings.Contains(err.Error(), "401 Unauthorized") {
+		t.Fatalf("err = %v; want the first rung's error", err)
 	}
 	if len(h.ops.servers) != 0 {
 		t.Errorf("servers left %v; want none", h.ops.servers)

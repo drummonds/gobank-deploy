@@ -146,7 +146,8 @@ gobank's `benchmark.md` in the `-src` checkout — `-doc` to say where, or
 workflow: `create` (up -create at the scale with an expiry of twice the
 ceiling and an hour, so a run that hangs is reaped by the page's tick; a
 server that exists is kept), `add` (the demo set flat out with
-room for a million customers, then batches of 1,000 customers until the
+room for a million customers and a payment a customer a day, up to
+10,000 a day, then batches of 1,000 customers until the
 books hold 10,000, the rate taken from the demo batch by batch so this
 program's polling is not in it), `days` (Run until the bank's day is seven
 years on or six hours have passed, read account days per 12h and the last

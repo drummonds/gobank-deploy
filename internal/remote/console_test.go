@@ -92,7 +92,7 @@ func TestConsoleSetsTheDayLengthThroughTheSettingsForm(t *testing.T) {
 	if err := (&Console{}).SetDayLength(context.Background(), ts.URL+"/", "", 2*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if posted.Get("day_length") != "2h0m0s" || posted.Get("max_customers") != "1000000" {
+	if posted.Get("day_length") != "2h0m0s" || posted.Get("max_customers") != "1000000" || posted.Has("payments_per_day") {
 		t.Errorf("posted %v", posted)
 	}
 }
@@ -128,7 +128,7 @@ func TestConsoleReadsTheRatesAndDrivesTheSimulation(t *testing.T) {
 		t.Errorf("rates = adding %v %.1f/s, %d account days, last day %s over %d", rd.Adding, rd.CustomersPerSec, rd.AccountDaysPer12h, rd.LastDayDuration, rd.LastDayAccounts)
 	}
 	for _, step := range []func() error{
-		func() error { return c.SetSettings(context.Background(), ts.URL, "", 0, 1_000_000) },
+		func() error { return c.SetSettings(context.Background(), ts.URL, "", 0, 1_000_000, 10_000) },
 		func() error { return c.AddCustomers(context.Background(), ts.URL, "", 1000) },
 		func() error { return c.Start(context.Background(), ts.URL, "") },
 		func() error { return c.Stop(context.Background(), ts.URL, "") },
@@ -137,7 +137,7 @@ func TestConsoleReadsTheRatesAndDrivesTheSimulation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := []string{"/settings?day_length=0s&max_customers=1000000", "/add-customers?n=1000", "/start?", "/stop?"}
+	want := []string{"/settings?day_length=0s&max_customers=1000000&payments_per_day=10000", "/add-customers?n=1000", "/start?", "/stop?"}
 	if len(posts) != len(want) {
 		t.Fatalf("posts = %v, want %v", posts, want)
 	}

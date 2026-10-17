@@ -146,13 +146,18 @@ func (c *Console) SetDayLength(ctx context.Context, base, token string, d time.D
 	if err != nil {
 		return err
 	}
-	return c.SetSettings(ctx, base, token, d, a.Settings.MaxCustomers)
+	return c.SetSettings(ctx, base, token, d, a.Settings.MaxCustomers, 0)
 }
 
-// SetSettings posts the settings form: the day length (zero is flat out)
-// and the customer ceiling together, as the page does.
-func (c *Console) SetSettings(ctx context.Context, base, token string, dayLength time.Duration, maxCustomers int) error {
-	return c.post(ctx, base, token, "/settings", url.Values{"day_length": {dayLength.String()}, "max_customers": {strconv.Itoa(maxCustomers)}})
+// SetSettings posts the settings form: the day length (zero is flat out),
+// the customer ceiling and the generator's payments a day together, as
+// the page does. Zero payments leaves the demo's as they are.
+func (c *Console) SetSettings(ctx context.Context, base, token string, dayLength time.Duration, maxCustomers, paymentsPerDay int) error {
+	form := url.Values{"day_length": {dayLength.String()}, "max_customers": {strconv.Itoa(maxCustomers)}}
+	if paymentsPerDay > 0 {
+		form.Set("payments_per_day", strconv.Itoa(paymentsPerDay))
+	}
+	return c.post(ctx, base, token, "/settings", form)
 }
 
 // AddCustomers starts a batch add of n customers, as the dashboard's form

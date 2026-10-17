@@ -175,7 +175,7 @@ func TestSevenYearsScenario(t *testing.T) {
 	if len(h.ops.ups) != 1 || !h.ops.ups[0].Create || h.ops.ups[0].Scale != "large" || h.ops.downs != 1 {
 		t.Errorf("ups %+v downs %d; want one create at large and one down", h.ops.ups, h.ops.downs)
 	}
-	if strings.Join(h.con.settings, ",") != "0s 1000" {
+	if strings.Join(h.con.settings, ",") != "0s 1000 0" {
 		t.Errorf("settings set %v; want flat out with room for the customers", h.con.settings)
 	}
 	demo := h.con.demo("http://seven-years/")

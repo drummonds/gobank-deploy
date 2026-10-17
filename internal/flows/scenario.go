@@ -296,7 +296,7 @@ func (r *scenarioRun) add(ctx context.Context) error {
 			return fmt.Errorf("stopping the run: %w", err)
 		}
 	}
-	if err := r.s.Console.SetSettings(ctx, st.URL, st.APIToken, 0, r.cfg.Customers); err != nil {
+	if err := r.s.Console.SetSettings(ctx, st.URL, st.APIToken, 0, r.cfg.Customers, 0); err != nil {
 		return fmt.Errorf("setting flat out: %w", err)
 	}
 	started, from := r.s.now(), rd.Position.Customers

@@ -130,10 +130,10 @@ func (c *perfConsole) Read(_ context.Context, url string) (drills.Reading, error
 	return rd, nil
 }
 
-func (c *perfConsole) SetSettings(_ context.Context, _, _ string, dayLength time.Duration, maxCustomers int) error {
+func (c *perfConsole) SetSettings(_ context.Context, _, _ string, dayLength time.Duration, maxCustomers, paymentsPerDay int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.settings = append(c.settings, fmt.Sprintf("%s %d", dayLength, maxCustomers))
+	c.settings = append(c.settings, fmt.Sprintf("%s %d %d", dayLength, maxCustomers, paymentsPerDay))
 	return nil
 }
 
@@ -226,8 +226,8 @@ func TestPerfCreatesMeasuresRecordsAndRemoves(t *testing.T) {
 	if len(h.ops.ups) != 1 || !h.ops.ups[0].Create || h.ops.ups[0].Scale != "large" || h.ops.downs != 1 {
 		t.Errorf("ups %+v downs %d; want one create at large and one down", h.ops.ups, h.ops.downs)
 	}
-	if strings.Join(h.con.settings, ",") != "0s 1000000" {
-		t.Errorf("settings set %v; want flat out with a million customers' room", h.con.settings)
+	if strings.Join(h.con.settings, ",") != "0s 1000000 10000" {
+		t.Errorf("settings set %v; want flat out with a million customers' room and a payment a customer a day", h.con.settings)
 	}
 	// Ten one-minute batches reach the 10,000 customers, each measured
 	// at the demo's own rate.
@@ -366,6 +366,21 @@ func TestPerfAddsUpToTheCustomerTarget(t *testing.T) {
 	}
 	if fmt.Sprint(h.con.addCalls) != "[300]" {
 		t.Errorf("add calls %v on a demo holding 2200; want one of 300", h.con.addCalls)
+	}
+}
+
+// The generator makes a payment a customer a day at the target's size, up
+// to the most the demo's settings form takes.
+func TestPerfSetsAPaymentACustomerADay(t *testing.T) {
+	for _, c := range []struct{ customers, payments int }{{100, 100}, {10_000, 10_000}, {50_000, 10_000}} {
+		h := newPerfHarness(t)
+		h.flow.Customers, h.flow.Batch = c.customers, c.customers
+		if err := h.run("small"); err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("0s 1000000 %d", c.payments); strings.Join(h.con.settings, ",") != want {
+			t.Errorf("%d customers: settings set %v; want %s", c.customers, h.con.settings, want)
+		}
 	}
 }
 

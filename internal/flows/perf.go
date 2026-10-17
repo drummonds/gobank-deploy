@@ -33,7 +33,7 @@ var PerfDefinition = wf.Definition{
 	InstanceKey: "environment scale date",
 	Steps: []wf.Step{
 		{Name: "create", Description: "up -create at the scale with an expiry of twice the ceiling and an hour (skipped when the server exists); record where the run is: server type, RAM, gobank version. Undone by remove when a later stage fails, so the next attempt starts here", Source: perfSrc},
-		{Name: "add", Description: "flat out with room for a million customers; batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
+		{Name: "add", Description: "flat out with room for a million customers and a payment a customer a day (at most 10,000); batches of customers until the books hold the target (10,000) or the ceiling (6h) is reached, each at the rate the demo reports", Source: perfSrc},
 		{Name: "days", Description: "Run until the bank's day is the years on (7), or the days asked for, or the ceiling (6h) is reached, then Stop; a demo found stopped is pressed Run again at most twice in a row, then the stage fails; read account days per 12h and the last day it is made of", Source: perfSrc},
 		{Name: "routes", Description: "the last reading before the box goes: every route the demo served over the run, its count and p95 (gobank v0.51.0 onwards; none before), and every table's rows and size on disk with the database's whole size (gobank with about.json's tables; none before), read off about.json", Source: perfSrc},
 		{Name: "remove", Description: "down: delete the server, firewall and hostname", Source: perfSrc},
@@ -47,8 +47,8 @@ func init() { wf.Definitions = append(wf.Definitions, PerfDefinition) }
 type PerfConsole interface {
 	Read(ctx context.Context, url string) (drills.Reading, error)
 	// The posts are made as the operator, with the environment's API
-	// token (gobank story 9.4).
-	SetSettings(ctx context.Context, url, token string, dayLength time.Duration, maxCustomers int) error
+	// token (gobank story 9.4). Zero payments a day leaves the demo's.
+	SetSettings(ctx context.Context, url, token string, dayLength time.Duration, maxCustomers, paymentsPerDay int) error
 	AddCustomers(ctx context.Context, url, token string, n int) error
 	Start(ctx context.Context, url, token string) error
 	Stop(ctx context.Context, url, token string) error
@@ -122,6 +122,16 @@ func (p *Perf) batch() int {
 		return p.Batch
 	}
 	return 1000
+}
+
+// maxPaymentsPerDay is the most payments a day the demo's settings form
+// takes.
+const maxPaymentsPerDay = 10_000
+
+// paymentsPerDay is a payment a customer a day at the target's size, up
+// to the most the demo takes.
+func (p *Perf) paymentsPerDay() int {
+	return min(p.customers(), maxPaymentsPerDay)
 }
 
 func (p *Perf) maxCustomers() int {
@@ -354,7 +364,7 @@ type filled struct {
 }
 
 // fill stops the demo if it is running, sets it flat out with room for
-// every customer, then adds customers a batch at a time until the books
+// every customer and a payment a customer a day, then adds customers a batch at a time until the books
 // hold the target or the ceiling is reached, the last batch cut to size.
 // The rate is the demo's own, batch by batch: customers over the time the
 // demo took to add them, without this program's polling in between.
@@ -369,7 +379,7 @@ func (p *Perf) fill(ctx context.Context, env deploy.Environment, out io.Writer) 
 			return f, fmt.Errorf("stopping the run: %w", err)
 		}
 	}
-	if err := p.Console.SetSettings(ctx, st.URL, st.APIToken, 0, p.maxCustomers()); err != nil {
+	if err := p.Console.SetSettings(ctx, st.URL, st.APIToken, 0, p.maxCustomers(), p.paymentsPerDay()); err != nil {
 		return f, fmt.Errorf("setting flat out: %w", err)
 	}
 	target, ceiling := p.customers(), p.ceiling()
